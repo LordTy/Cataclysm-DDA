@@ -15,7 +15,6 @@
 #include "overmap.h"
 #include "item.h"
 #include "json.h"
-#include "monster.h"
 #include "npc.h"
 #include "vehicle.h"
 #include "lightmap.h"
@@ -29,6 +28,7 @@
 #define CAMPCHECK 3
 
 class player;
+class monster;
 class item;
 struct itype;
 struct mapgendata;
@@ -131,10 +131,10 @@ class map
 
  /** Draw a visible part of the map into `w`.
   *
-  * This method uses `g->u.posx/posy` for visibility calculations, so it can
+  * This method uses `g->u.posx()/posy()` for visibility calculations, so it can
   * not be used for anything but the player's viewport. Likewise, only
   * `g->m` and maps with equivalent coordinates can be used, as other maps
-  * would have coordinate systems incompatible with `g->u.posx`
+  * would have coordinate systems incompatible with `g->u.posx()`
   *
   * @param center The coordinate of the center of the viewport, this can
   *               be different from the player coordinate.
@@ -215,7 +215,7 @@ class map
   * 0         | Impassable
   * n > 0     | x*n turns to move past this
   */
- int move_cost(const int x, const int y, const vehicle *ignored_vehicle = NULL) const;
+ int move_cost(const int x, const int y, const vehicle *ignored_vehicle = nullptr) const;
 
 
  /**
@@ -229,12 +229,12 @@ class map
   * @return The cost in turns to move out of `(x1, y1)` and into `(x2, y2)`
   */
  int combined_movecost(const int x1, const int y1, const int x2, const int y2,
-                       const vehicle *ignored_vehicle = NULL, const int modifier = 0);
+                       const vehicle *ignored_vehicle = nullptr, const int modifier = 0) const;
 
  /**
   * Returns whether the tile at `(x, y)` is transparent(you can look past it).
   */
- bool trans(const int x, const int y); // Transparent?
+ bool trans(const int x, const int y) const; // Transparent?
 
  /**
   * Returns whether `(Fx, Fy)` sees `(Tx, Ty)` with a view range of `range`.
@@ -243,8 +243,8 @@ class map
   *           subsequently be used to form a path between them
   */
  bool sees(const int Fx, const int Fy, const int Tx, const int Ty,
-           const int range, int &bresenham_slope);
- bool sees( point F, point T, int range, int &bresenham_slope );
+           const int range, int &bresenham_slope) const;
+ bool sees( point F, point T, int range, int &bresenham_slope ) const;
 
  /**
   * Check whether there's a direct line of sight between `(Fx, Fy)` and
@@ -279,7 +279,7 @@ class map
   * Points closer to the target come first.
   * This method leads to straighter lines and prevents weird looking movements away from the target.
   */
- std::vector<point> getDirCircle(const int Fx, const int Fy, const int Tx, const int Ty);
+ std::vector<point> getDirCircle(const int Fx, const int Fy, const int Tx, const int Ty) const;
 
  /**
   * Calculate a best path using A*
@@ -287,13 +287,11 @@ class map
   * @param Fx, Fy The source location from which to path.
   * @param Tx, Ty The destination to which to path.
   *
-  * @param bash Whether we should path through terrain that's impassable, but can
-  *             be destroyed(closed windows, doors, etc.)
+  * @param bash Bashing strength of pathing creature (0 means no bashing through terrain)
   */
- std::vector<point> route(const int Fx, const int Fy, const int Tx, const int Ty,
-                          const bool bash = true);
+ std::vector<point> route(const int Fx, const int Fy, const int Tx, const int Ty, const int bash) const;
 
- int coord_to_angle (const int x, const int y, const int tgtx, const int tgty);
+ int coord_to_angle (const int x, const int y, const int tgtx, const int tgty) const;
 // vehicles
  VehicleList get_vehicles();
  VehicleList get_vehicles(const int sx, const int sy, const int ex, const int ey);
@@ -305,11 +303,14 @@ class map
   * @return A pointer to the vehicle in this tile.
   */
  vehicle* veh_at(const int x, const int y, int &part_num);
+ const vehicle* veh_at(const int x, const int y, int &part_num) const;
+ const vehicle* veh_at_internal(const int x, const int y, int &part_num) const;
 
  /**
   * Same as `veh_at(const int, const int, int)`, but doesn't return part number.
   */
- vehicle* veh_at(const int x, const int y);// checks, if tile is occupied by vehicle
+ vehicle* veh_at(const int x, const int y);// checks if tile is occupied by vehicle
+ const vehicle* veh_at(const int x, const int y) const;
 
  /**
   * Vehicle-relative coordinates from reality bubble coordinates, if a vehicle
@@ -342,7 +343,7 @@ class map
  void set(const int x, const int y, const std::string new_terrain, const std::string new_furniture);
 
  std::string name(const int x, const int y);
- bool has_furn(const int x, const int y);
+ bool has_furn(const int x, const int y) const;
 
  furn_id furn(const int x, const int y) const; // Furniture at coord (x, y); {x|y}=(0, SEE{X|Y}*3]
  std::string get_furn(const int x, const int y) const;
@@ -384,7 +385,7 @@ class map
   * any items. This is similar to @ref sees_some_items, but it
   * does not check that there are actually any items.
   */
- bool could_see_items(int x, int y, const player &u);
+ bool could_see_items(int x, int y, const player &u) const;
 
 
  std::string features(const int x, const int y); // Words relevant to terrain (sharp, etc)
@@ -402,28 +403,35 @@ class map
  bool has_flag_ter_and_furn(const ter_bitflags flag, const int x, const int y) const; // checks terrain and furniture
 
  /** Returns true if there is a bashable vehicle part or the furn/terrain is bashable at x,y */
- bool is_bashable(const int x, const int y);
+ bool is_bashable(const int x, const int y) const;
  /** Returns true if the terrain at x,y is bashable */
- bool is_bashable_ter(const int x, const int y);
+ bool is_bashable_ter(const int x, const int y) const;
  /** Returns true if the furniture at x,y is bashable */
- bool is_bashable_furn(const int x, const int y);
+ bool is_bashable_furn(const int x, const int y) const;
  /** Returns true if the furniture or terrain at x,y is bashable */
- bool is_bashable_ter_furn(const int x, const int y);
+ bool is_bashable_ter_furn(const int x, const int y) const;
  /** Returns max_str of the furniture or terrain at x,y */
- int bash_strength(const int x, const int y);
+ int bash_strength(const int x, const int y) const;
  /** Returns min_str of the furniture or terrain at x,y */
- int bash_resistance(const int x, const int y);
+ int bash_resistance(const int x, const int y) const;
  /** Returns a success rating from -1 to 10 for a given tile based on a set strength, used for AI movement planning
   *  Values roughly correspond to 10% increment chances of success on a given bash, rounded down. -1 means the square is not bashable */
- int bash_rating(const int str, const int x, const int y);
+ int bash_rating(const int str, const int x, const int y) const;
 
  /** Generates rubble at the given location, if overwrite is true it just writes on top of what currently exists
   *  floor_type is only used if there is a non-bashable wall at the location or with overwrite = true */
  void make_rubble(const int x, const int y, furn_id rubble_type = f_rubble, bool items = false,
                     ter_id floor_type = t_dirt, bool overwrite = false);
 
- bool is_divable(const int x, const int y);
- bool is_outside(const int x, const int y);
+ bool is_divable(const int x, const int y) const;
+ bool is_outside(const int x, const int y) const;
+ /** Check if the last terrain is wall in direction NORTH, SOUTH, WEST or EAST
+  *  @param no_furn if true, the function will stop and return false
+  *  if it encounters a furniture
+  *  @return true if from x to xmax or y to ymax depending on direction
+  *  all terrain is floor and the last terrain is a wall */
+ bool is_last_ter_wall(const bool no_furn, const int x, const int y,
+                       const int xmax, const int ymax, const direction dir) const;
  bool flammable_items_at(const int x, const int y);
  bool moppable_items_at(const int x, const int y);
  point random_outdoor_tile();
@@ -774,7 +782,9 @@ protected:
                 const int zlevel, const regional_settings * rsettings);
  void add_extra(map_extra type);
  void build_transparency_cache();
+public:
  void build_outside_cache();
+protected:
  void generate_lightmap();
  void build_seen_cache();
  void castLight( int row, float start, float end, int xx, int xy, int yx, int yy,
@@ -816,7 +826,7 @@ private:
         /**
          * Get the submap pointer with given index in @ref grid, the index must be valid!
          */
-        submap *getsubmap( int grididx ) const;
+        submap *getsubmap( size_t grididx ) const;
         /**
          * Get the submap pointer containing the specified position within the reality bubble.
          * (x,y) must be a valid coordinate, check with @ref inbounds.
@@ -837,17 +847,26 @@ private:
          * Get the index of a submap pointer in the grid given by grid coordinates. The grid
          * coordinates must be valid: 0 <= x < my_MAPSIZE, same for y.
          */
-        int get_nonant( int gridx, int gridy ) const;
+        size_t get_nonant( int gridx, int gridy ) const;
         /**
          * Set the submap pointer in @ref grid at the give index. This is the inverse of
          * @ref getsubmap, any existing pointer is overwritten. The index must be valid.
          * The given submap pointer must not be null.
          */
-        void setsubmap( int grididx, submap *smap );
+        void setsubmap( size_t grididx, submap *smap );
 
     void spawn_monsters( int gx, int gy, mongroup &group, bool ignore_sight );
 
- long determine_wall_corner(const int x, const int y, const long orig_sym);
+    /**
+     * Internal versions of public functions to avoid checking same variables multiple times.
+     * They lack safety checks, because their callers already do those.
+     */
+    int move_cost_internal(const furn_t &furniture, const ter_t &terrain, 
+                           const vehicle *veh, const int vpart) const;
+    int bash_rating_internal( const int str, const furn_t &furniture, 
+                              const ter_t &terrain, const vehicle *veh, const int part ) const;
+
+ long determine_wall_corner(const int x, const int y, const long orig_sym) const;
  void cache_seen(const int fx, const int fy, const int tx, const int ty, const int max_range);
  // apply a circular light pattern immediately, however it's best to use...
  void apply_light_source(int x, int y, float luminance, bool trig_brightcalc);
@@ -859,21 +878,21 @@ private:
                       int sx, int sy, int ex, int ey, float luminance, bool trig_brightcalc = true);
  void add_light_from_items( const int x, const int y, std::list<item>::iterator begin,
                             std::list<item>::iterator end );
- void calc_ray_end(int angle, int range, int x, int y, int* outx, int* outy);
+ void calc_ray_end(int angle, int range, int x, int y, int* outx, int* outy) const;
  void forget_traps(int gridx, int gridy);
  vehicle *add_vehicle_to_map(vehicle *veh, bool merge_wrecks);
 
  // Iterates over every item on the map, passing each item to the provided function.
  template<typename T>
-     void process_items( bool active, T processor, std::string signal );
+     void process_items( bool active, T processor, std::string const &signal );
  template<typename T>
-     void process_items_in_submap( submap *const current_submap, int gridx, int gridy,
-                                   T processor, std::string signal );
+     void process_items_in_submap( submap * current_submap, int gridx, int gridy,
+                                   T processor, std::string const &signal );
  template<typename T>
-     void process_items_in_vehicles( submap *const current_submap, T processor, std::string signal);
+     void process_items_in_vehicles( submap *current_submap, T processor, std::string const &signal);
  template<typename T>
-     void process_items_in_vehicle( vehicle *cur_veh, submap *const current_submap,
-                                    T processor, std::string signal );
+     void process_items_in_vehicle( vehicle *cur_veh, submap *current_submap,
+                                    T processor, std::string const &signal );
 
  float lm[MAPSIZE*SEEX][MAPSIZE*SEEY];
  float sm[MAPSIZE*SEEX][MAPSIZE*SEEY];
@@ -883,7 +902,12 @@ private:
  bool outside_cache[MAPSIZE*SEEX][MAPSIZE*SEEY];
  float transparency_cache[MAPSIZE*SEEX][MAPSIZE*SEEY];
  bool seen_cache[MAPSIZE*SEEX][MAPSIZE*SEEY];
- submap* grid[MAPSIZE * MAPSIZE];
+        /**
+         * The list of currently loaded submaps. The size of this should not be changed.
+         * After calling @ref load or @ref generate, it should only contain non-null pointers.
+         * Use @ref getsubmap or @ref setsubmap to access it.
+         */
+        std::vector<submap*> grid;
  std::map<trap_id, std::set<point> > traplocs;
 };
 

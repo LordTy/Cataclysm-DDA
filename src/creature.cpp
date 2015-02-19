@@ -68,6 +68,7 @@ Creature::Creature()
     pain = 0;
     killer = NULL;
     speed_base = 100;
+    underwater = false;
 
     reset_bonuses();
 
@@ -181,14 +182,18 @@ bool Creature::sees( const Creature &critter, int &bresenham_slope ) const
         // the player will see them always.
         return is_player();
     }
+
     const auto p = dynamic_cast< const player* >( &critter );
     if( p != nullptr && p->is_invisible() ) {
         return false;
     }
-    int cx = critter.xpos();
-    int cy = critter.ypos();
+
+    int cx = critter.posx();
+    int cy = critter.posy();
     const int wanted_range = rl_dist( pos(), critter.pos() );
-    if( ( wanted_range > 1 && critter.digging() ) ||
+    if( wanted_range <= 1 ) {
+        return true;
+    } else if( ( wanted_range > 1 && critter.digging() ) ||
         ( g->m.is_divable( cx, cy ) && critter.is_underwater() && !is_underwater() ) ) {
         return false;
     }
@@ -247,18 +252,18 @@ Creature *Creature::auto_find_hostile_target( int range, int &boo_hoo, int area 
     bool angle_iff = true;   // Need to check if player is in a cone between us and target
     int pldist = rl_dist( pos(), g->u.pos() );
     int part;
-    vehicle *in_veh = is_fake() ? g->m.veh_at( xpos(), ypos(), part ) : nullptr;
+    vehicle *in_veh = is_fake() ? g->m.veh_at( posx(), posy(), part ) : nullptr;
     if( pldist < iff_dist && sees( g->u ) ) {
         area_iff = area > 0;
         angle_iff = true;
         // Player inside vehicle won't be hit by shots from the roof,
         // so we can fire "through" them just fine.
-        if( in_veh && g->m.veh_at( u.posx, u.posy, part ) == in_veh && in_veh->is_inside( part ) ) {
+        if( in_veh && g->m.veh_at( u.posx(), u.posy(), part ) == in_veh && in_veh->is_inside( part ) ) {
             angle_iff = false; // No angle IFF, but possibly area IFF
         } else if( pldist < 3 ) {
             iff_hangle = (pldist == 2 ? 30 : 60);    // granularity increases with proximity
         }
-        u_angle = g->m.coord_to_angle(xpos(), ypos(), u.posx, u.posy);
+        u_angle = g->m.coord_to_angle(posx(), posy(), u.posx(), u.posy());
     }
     std::vector<Creature*> targets;
     for (size_t i = 0; i < g->num_zombies(); i++) {
@@ -294,11 +299,11 @@ Creature *Creature::auto_find_hostile_target( int range, int &boo_hoo, int area 
             continue;
         }
 
-        if( in_veh != nullptr && g->m.veh_at( m->xpos(), m->ypos(), part ) == in_veh ) {
+        if( in_veh != nullptr && g->m.veh_at( m->posx(), m->posy(), part ) == in_veh ) {
             // No shooting stuff on vehicle we're a part of
             continue;
         }
-        if( area_iff > 0 && rl_dist( u.posx, u.posy, m->xpos(), m->ypos() ) <= area ) {
+        if( area_iff > 0 && rl_dist( u.posx(), u.posy(), m->posx(), m->posy() ) <= area ) {
             // Player in AoE
             if( mon_rating > 1 ) {
                 boo_hoo++;
@@ -306,7 +311,7 @@ Creature *Creature::auto_find_hostile_target( int range, int &boo_hoo, int area 
             continue;
         }
         if( angle_iff ) {
-            int tangle = g->m.coord_to_angle(xpos(), ypos(), m->xpos(), m->ypos());
+            int tangle = g->m.coord_to_angle(posx(), posy(), m->posx(), m->posy());
             int diff = abs(u_angle - tangle);
             // Player is in the angle and not too far behind the target
             if( ( diff + iff_hangle > 360 || diff < iff_hangle ) &&
@@ -571,18 +576,18 @@ int Creature::deal_projectile_attack(Creature *source, double missed_by,
                 std::string health_bar = "";
                 get_HP_Bar(dealt_dam.total_damage(), this->get_hp_max(), color, health_bar, true);
 
-                SCT.add(this->xpos(),
-                        this->ypos(),
-                        direction_from(0, 0, this->xpos() - source->xpos(), this->ypos() - source->ypos()),
+                SCT.add(this->posx(),
+                        this->posy(),
+                        direction_from(0, 0, this->posx() - source->posx(), this->posy() - source->posy()),
                         health_bar, m_good,
                         message, gmtSCTcolor);
 
                 if (this->get_hp() > 0) {
                     get_HP_Bar(this->get_hp(), this->get_hp_max(), color, health_bar, true);
 
-                    SCT.add(this->xpos(),
-                            this->ypos(),
-                            direction_from(0, 0, this->xpos() - source->xpos(), this->ypos() - source->ypos()),
+                    SCT.add(this->posx(),
+                            this->posy(),
+                            direction_from(0, 0, this->posx() - source->posx(), this->posy() - source->posy()),
                             health_bar, m_good,
                             //~ “hit points”, used in scrolling combat text
                             _("hp"), m_neutral,
@@ -606,15 +611,16 @@ int Creature::deal_projectile_attack(Creature *source, double missed_by,
             }
         }
     }
-    if (this->is_dead_state()) {
-        this->die(source);
-    }
+    check_dead_state();
     return 0;
 }
 
 dealt_damage_instance Creature::deal_damage(Creature *source, body_part bp,
         const damage_instance &dam)
 {
+    if( is_dead_state() ) {
+        return dealt_damage_instance();
+    }
     int total_damage = 0;
     int total_pain = 0;
     damage_instance d = dam; // copy, since we will mutate in absorb_hit
@@ -641,9 +647,6 @@ dealt_damage_instance Creature::deal_damage(Creature *source, body_part bp,
     }
 
     apply_damage(source, bp, total_damage);
-    if( is_dead_state() ) {
-        die( source );
-    }
     return dealt_damage_instance(dealt_dams);
 }
 void Creature::deal_damage_handle_type(const damage_unit &du, body_part, int &damage, int &pain)
@@ -986,6 +989,15 @@ bool Creature::in_sleep_state() const
 Creature *Creature::get_killer() const
 {
     return killer;
+}
+
+void Creature::set_killer( Creature * const killer )
+{
+    // Only the first killer will be stored, calling set_killer again with a different
+    // killer would mean it's called on a dead creature and therefor ignored.
+    if( killer != nullptr && !killer->is_fake() && this->killer == nullptr ) {
+        this->killer = killer;
+    }
 }
 
 /*
@@ -1400,8 +1412,8 @@ void Creature::on_gethit(Creature *, body_part, damage_instance &)
  */
 void Creature::draw(WINDOW *w, int player_x, int player_y, bool inverted) const
 {
-    int draw_x = getmaxx(w) / 2 + xpos() - player_x;
-    int draw_y = getmaxy(w) / 2 + ypos() - player_y;
+    int draw_x = getmaxx(w) / 2 + posx() - player_x;
+    int draw_y = getmaxy(w) / 2 + posy() - player_y;
     if(inverted) {
         mvwputch_inv(w, draw_y, draw_x, basic_symbol_color(), symbol());
     } else if(is_symbol_highlighted()) {
@@ -1501,4 +1513,10 @@ body_part Creature::select_body_part(Creature *source, int hit_roll)
 bool Creature::compare_by_dist_to_point::operator()( const Creature* const a, const Creature* const b ) const
 {
     return rl_dist( a->pos(), center ) < rl_dist( b->pos(), center );
+}
+
+void Creature::check_dead_state() {
+    if( is_dead_state() ) {
+        die( nullptr );
+    }
 }

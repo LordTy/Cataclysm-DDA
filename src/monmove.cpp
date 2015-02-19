@@ -7,9 +7,12 @@
 #include "rng.h"
 #include "pldata.h"
 #include "messages.h"
-#include <stdlib.h>
 #include "cursesdef.h"
+#include "sounds.h"
+#include "monattack.h"
+#include "monstergenerator.h"
 
+#include <stdlib.h>
 //Used for e^(x) functions
 #include <stdio.h>
 #include <math.h>
@@ -73,7 +76,7 @@ void monster::set_dest(int x, int y, int &t)
 {
  plans.clear();
 // TODO: This causes a segfault, once in a blue moon!  Whyyyyy.
- plans = line_to(_posx, _posy, x, y, t);
+ plans = line_to(position, point(x, y), t);
 }
 
 // Move towards (x,y) for f more turns--generally if we hear a sound there
@@ -85,13 +88,20 @@ void monster::wander_to(int x, int y, int f)
  wandf = f;
 }
 
-float monster::rate_target( Creature &c, int &bresenham_slope, bool smart ) const
+float monster::rate_target( Creature &c, int &bresenham_slope, float best, bool smart ) const
 {
-    int d = rl_dist( pos(), c.pos() );
-    if( !sees( c.pos(), bresenham_slope ) ) {
+    const int d = rl_dist( pos(), c.pos() );
+    if( d <= 0 || !sees( c, bresenham_slope ) ) {
         return INT_MAX;
     }
     if( !smart ) {
+        // Do the range comparison first, it's cheaper.
+        if( d >= best ) {
+            return INT_MAX;
+        }
+        if( !sees( c.pos(), bresenham_slope ) ) {
+            return INT_MAX;
+        }
         return d;
     }
     float power = c.power_rating();
@@ -100,7 +110,7 @@ float monster::rate_target( Creature &c, int &bresenham_slope, bool smart ) cons
     if( mon != nullptr && mon->attitude_to( *this ) == Attitude::A_HOSTILE ) {
         power += 2;
     }
-    if( power > 0 ) {
+    if( power > 0 && sees( c.pos(), bresenham_slope ) ) {
         return d / power;
     }
     return INT_MAX;
@@ -110,106 +120,150 @@ void monster::plan(const mfactions &factions)
 {
     // Bots are more intelligent than most living stuff
     bool electronic = has_flag( MF_ELECTRONIC );
-    int closest = -1;
+    Creature *target = nullptr;
     // 8.6f is rating for tank drone 60 tiles away, moose 16 or boomer 33
     float dist = !electronic ? 1000 : 8.6f;
     int bresenham_slope = 0;
     int selected_slope = 0;
     bool fleeing = false;
-    bool docile = friendly != 0 && has_effect( "docile" );
+    bool docile = has_flag( MF_VERMIN ) || ( friendly != 0 && has_effect( "docile" ) );
+    bool angers_hostile_weak = type->anger.find( MTRIG_HOSTILE_WEAK ) != type->anger.end();
+    int angers_hostile_near = ( type->anger.find( MTRIG_HOSTILE_CLOSE ) != type->anger.end() ) ? 5 : 0;
+    int fears_hostile_near = ( type->fear.find( MTRIG_HOSTILE_CLOSE ) != type->fear.end() ) ? 5 : 0;
+    bool group_morale = has_flag( MF_GROUP_MORALE ) && morale < type->morale;
+    bool swarms = has_flag( MF_SWARMS );
+    auto mood = attitude();
 
-    if( friendly != 0 && !docile ) { // Target unfriendly monsters
+    // If we can see the player, move toward them or flee.
+    if( friendly == 0 && sees( g->u, bresenham_slope ) ) {
+        dist = rate_target( g->u, bresenham_slope, dist, electronic );
+        fleeing = fleeing || is_fleeing( g->u );
+        target = &g->u;
+        selected_slope = bresenham_slope;
+        if( dist <= 5 ) {
+            anger += angers_hostile_near;
+            morale -= fears_hostile_near;
+        }
+    } else if( friendly != 0 && !docile ) {
+        // Target unfriendly monsters, only if we aren't interacting with the player.
         for( int i = 0, numz = g->num_zombies(); i < numz; i++ ) {
-            monster tmp = g->zombie( i );
+            monster &tmp = g->zombie( i );
             if( tmp.friendly == 0 ) {
-                float rating = rate_target( tmp, bresenham_slope, electronic );
+                float rating = rate_target( tmp, bresenham_slope, dist, electronic );
                 if( rating < dist ) {
-                    closest = -3 - i;
+                    target = &tmp;
                     dist = rating;
                     selected_slope = bresenham_slope;
                 }
             }
-        }
-    }
-
-    // If we can see, and we can see the player, move toward them or flee.
-    if( friendly == 0 && can_see() && sees( g->u, bresenham_slope ) ) {
-        dist = rate_target( g->u, bresenham_slope, electronic );
-        if( is_fleeing( g->u ) ) {
-            // Wander away.
-            fleeing = true;
-            set_dest(posx() * 2 - g->u.posx, posy() * 2 - g->u.posy, bresenham_slope);
-        } else {
-            // Chase the player.
-            closest = -2;
-            selected_slope = bresenham_slope;
         }
     }
 
     if( !docile ) {
         for( size_t i = 0; i < g->active_npc.size(); i++ ) {
-            npc *me = (g->active_npc[i]);
-            float rating = rate_target( *me, bresenham_slope, electronic );
-            if( rating < dist || ( !fleeing && is_fleeing( *me ) ) ) {
-                if( is_fleeing( *me ) ) {
-                    fleeing = true;
-                    set_dest(posx() * 2 - me->posx, posy() * 2 - me->posy, bresenham_slope);
+            npc *me = g->active_npc[i];
+            float rating = rate_target( *me, bresenham_slope, dist, electronic );
+            bool fleeing_from = is_fleeing( *me );
+            // Switch targets if closer and hostile or scarier than current target
+            if( ( rating < dist && fleeing ) ||
+                ( rating < dist && attitude( me ) == MATT_ATTACK ) ||
+                ( !fleeing && fleeing_from ) ) {
+                    target = me;
                     dist = rating;
-                } else if( attitude( me ) == MATT_ATTACK ) {
-                    closest = i;
                     selected_slope = bresenham_slope;
+            }
+            fleeing = fleeing || fleeing_from;
+            if( rating <= 5 ) {
+                anger += angers_hostile_near;
+                morale -= fears_hostile_near;
+            }
+        }
+    }
+
+    fleeing = fleeing || ( mood == MATT_FLEE );
+    if( friendly == 0 && !docile ) {
+        for( const auto &fac : factions ) {
+            auto faction_att = faction->attitude( fac.first );
+            if( faction_att == MFA_NEUTRAL || faction_att == MFA_FRIENDLY ) {
+                continue;
+            }
+
+            for( int i : fac.second ) { // mon indices
+                monster &mon = g->zombie( i );
+                float rating = rate_target( mon, bresenham_slope, dist, electronic );
+                if( rating < dist ) {
+                    target = &mon;
                     dist = rating;
+                    selected_slope = bresenham_slope;
+                }
+                if( rating <= 5 ) {
+                    anger += angers_hostile_near;
+                    morale -= fears_hostile_near;
                 }
             }
         }
     }
 
-    if( !fleeing ) {
-        fleeing = attitude() == MATT_FLEE;
-        if( friendly == 0 && can_see() ) {
-            for( const auto &faction : factions ) {
-                if( faction.first == monfaction() ) {
-                    continue;
-                }
-
-                for( int i : faction.second ) { // mon indices
-                    monster &mon = g->zombie( i );
-                    float rating = rate_target( mon, bresenham_slope, electronic );
-                    if( rating < dist ) {
-                        dist = rating;
-                        if (fleeing) {
-                            wandx = posx() * 2 - mon.posx();
-                            wandy = posy() * 2 - mon.posy();
-                            wandf = 40;
-                        } else {
-                            closest = -3 - i;
-                            selected_slope = bresenham_slope;
-                        }
-                    }
+    // Friendly monsters here
+    // Avoid for hordes of same-faction stuff or it could get expensive
+    const monfaction *actual_faction = friendly == 0 ? faction : GetMFact( "player" );
+    auto const &myfaction_iter = factions.find( actual_faction );
+    if( myfaction_iter == factions.end() ) {
+        DebugLog( D_ERROR, D_GAME ) << disp_name() << " tried to find faction " << 
+            ( friendly == 0 ? faction->name : "player" ) << " which wasn't loaded in game::monmove";
+        swarms = false;
+        group_morale = false;
+    }
+    swarms = swarms && target == nullptr; // Only swarm if we have no target
+    if( group_morale || swarms ) {
+        for( const int i : myfaction_iter->second ) {
+            monster &mon = g->zombie( i );
+            float rating = rate_target( mon, bresenham_slope, dist, electronic );
+            if( group_morale && rating <= 10 ) {
+                morale += 10 - rating;
+            }
+            if( swarms ) {
+                if( rating < 5 ) { // Too crowded here
+                    wandx = posx() * rng( 1, 3 ) - mon.posx();
+                    wandy = posy() * rng( 1, 3 ) - mon.posy();
+                    wandf = 2;
+                    target = nullptr;
+                    // Swarm to the furthest ally you can see
+                } else if( rating < INT_MAX && rating > dist && wandf <= 0 ) {
+                    target = &mon;
+                    dist = rating;
+                    selected_slope = bresenham_slope;
                 }
             }
         }
+    }
 
-        if (one_in(2)) {//random for the diversity of the trajectory
+    if( target != nullptr ) {
+        if( one_in( 2 ) ) { // Random for the diversity of the trajectory
             ++selected_slope;
         } else {
             --selected_slope;
         }
-        if (closest == -2) {            
-            set_dest(g->u.posx, g->u.posy, selected_slope);
-        } else if (closest <= -3) {
-            set_dest(g->zombie(-3 - closest).posx(), g->zombie(-3 - closest).posy(), selected_slope);
-        } else if (closest >= 0) {
-            set_dest(g->active_npc[closest]->posx, g->active_npc[closest]->posy, selected_slope);
+
+        point dest = target->pos();
+        auto att_to_target = attitude_to( *target );
+        if( att_to_target == Attitude::A_HOSTILE && !fleeing ) {
+            set_dest( dest.x, dest.y, selected_slope );
+        } else if( fleeing ) {
+            set_dest( posx() * 2 - dest.x, posy() * 2 - dest.y, selected_slope );
         }
-    }
-    
-    if( closest == -1 && friendly > 0 && one_in(3)) {
+        if( angers_hostile_weak && att_to_target != Attitude::A_FRIENDLY ) {
+            int hp_per = target->hp_percentage();
+            if( hp_per <= 70 ) {
+                anger += 10 - int( hp_per / 10 );
+            }
+        }
+    } else if( friendly > 0 && one_in(3)) {
             // Grow restless with no targets
             friendly--;
-    } else if( closest == -1 && friendly < 0 && sees( g->u, bresenham_slope ) ) {
+    } else if( friendly < 0 && sees( g->u, bresenham_slope ) ) {
         if( rl_dist( pos(), g->u.pos() ) > 2 ) {
-            set_dest(g->u.posx, g->u.posy, bresenham_slope);
+            set_dest(g->u.posx(), g->u.posy(), bresenham_slope);
         } else {
             plans.clear();
         }
@@ -263,8 +317,7 @@ void monster::move()
         }
 
         if( sp_timeout[i] == 0 && !has_effect("pacified") && !is_hallucination() ) {
-            mattack ma;
-            (ma.*type->sp_attack[i])(this, i);
+            type->sp_attack[i](this, i);
         }
     }
     if (moves < 0) {
@@ -297,11 +350,11 @@ void monster::move()
     // Set attitude to attitude to our current target
     monster_attitude current_attitude = attitude( nullptr );
     if( !plans.empty() ) {
-        if (plans.back().x == g->u.posx && plans.back().y == g->u.posy) {
+        if (plans.back().x == g->u.posx() && plans.back().y == g->u.posy()) {
             current_attitude = attitude( &(g->u) );
         } else {
             for( auto &i : g->active_npc ) {
-                if( plans.back().x == i->posx && plans.back().y == i->posy ) {
+                if( plans.back().x == i->posx() && plans.back().y == i->posy() ) {
                     current_attitude = attitude( i );
                 }
             }
@@ -321,7 +374,7 @@ void monster::move()
     if( !plans.empty() &&
         ( mon_att == A_HOSTILE || has_flag(MF_ATTACKMON) ) &&
         ( can_move_to( plans[0].x, plans[0].y ) ||
-          ( plans[0].x == g->u.posx && plans[0].y == g->u.posy ) ||
+          ( plans[0].x == g->u.posx() && plans[0].y == g->u.posy() ) ||
           ( ( has_flag( MF_BASHES ) || has_flag( MF_BORES ) ) &&
           g->m.bash_rating( bash_estimate(), plans[0].x, plans[0].y) >= 0 ) ) ) {
         // CONCRETE PLANS - Most likely based on sight
@@ -394,8 +447,8 @@ void monster::footsteps(int x, int y)
    break;
   default: break;
  }
- int dist = rl_dist(x, y, g->u.posx, g->u.posy);
- g->add_footstep(x, y, volume, dist, this);
+ int dist = rl_dist(x, y, g->u.posx(), g->u.posy());
+ sounds::add_footstep(x, y, volume, dist, this);
  return;
 }
 
@@ -408,7 +461,7 @@ void monster::friendly_move()
     point next;
     bool moved = false;
     //If we successfully calculated a plan in the generic monster movement function, begin executing it.
-    if (!plans.empty() && (plans[0].x != g->u.posx || plans[0].y != g->u.posy) &&
+    if (!plans.empty() && (plans[0].x != g->u.posx() || plans[0].y != g->u.posy()) &&
         (can_move_to(plans[0].x, plans[0].y) ||
          ((has_flag(MF_BASHES) || has_flag(MF_BORES)) &&
           g->m.bash_rating(bash_estimate(), plans[0].x, plans[0].y) >= 0))) {
@@ -456,7 +509,7 @@ point monster::scent_move()
             smell = g->scent(nx, ny);
             int mon = g->mon_at(nx, ny);
             if( (mon == -1 || g->zombie(mon).friendly != 0 || has_flag(MF_ATTACKMON)) &&
-                (can_move_to(nx, ny) || (nx == g->u.posx && ny == g->u.posy) ||
+                (can_move_to(nx, ny) || (nx == g->u.posx() && ny == g->u.posy()) ||
                  ((has_flag(MF_BASHES) || has_flag(MF_BORES)) &&
                  g->m.bash_rating(bash_estimate(), nx, ny) >= 0))) {
                 if ((!fleeing && smell > maxsmell) || (fleeing && smell < minsmell)) {
@@ -506,54 +559,54 @@ point monster::wander_next()
     }
 
     if (xbest) {
-        if (can_move_to(x, y) || (x == g->u.posx && y == g->u.posy) ||
+        if (can_move_to(x, y) || (x == g->u.posx() && y == g->u.posy()) ||
             ((has_flag(MF_BASHES) || has_flag(MF_BORES)) &&
              g->m.bash_rating(bash_estimate(), x, y) >= 0)) {
             next.x = x;
             next.y = y;
-        } else if (can_move_to(x, y2) || (x == g->u.posx && y == g->u.posy) ||
+        } else if (can_move_to(x, y2) || (x == g->u.posx() && y == g->u.posy()) ||
                    ((has_flag(MF_BASHES) || has_flag(MF_BORES)) &&
                     g->m.bash_rating(bash_estimate(), x, y2) >= 0)) {
             next.x = x;
             next.y = y2;
-        } else if (can_move_to(x2, y) || (x == g->u.posx && y == g->u.posy) ||
+        } else if (can_move_to(x2, y) || (x == g->u.posx() && y == g->u.posy()) ||
                    ((has_flag(MF_BASHES) || has_flag(MF_BORES)) &&
                     g->m.bash_rating(bash_estimate(), x2, y) >= 0)) {
             next.x = x2;
             next.y = y;
-        } else if (can_move_to(x, y3) || (x == g->u.posx && y == g->u.posy) ||
+        } else if (can_move_to(x, y3) || (x == g->u.posx() && y == g->u.posy()) ||
                    ((has_flag(MF_BASHES) || has_flag(MF_BORES)) &&
                     g->m.bash_rating(bash_estimate(), x, y3) >= 0)) {
             next.x = x;
             next.y = y3;
-        } else if (can_move_to(x3, y) || (x == g->u.posx && y == g->u.posy) ||
+        } else if (can_move_to(x3, y) || (x == g->u.posx() && y == g->u.posy()) ||
                    ((has_flag(MF_BASHES) || has_flag(MF_BORES)) &&
                     g->m.bash_rating(bash_estimate(), x3, y) >= 0)) {
             next.x = x3;
             next.y = y;
         }
     } else {
-        if (can_move_to(x, y) || (x == g->u.posx && y == g->u.posy) ||
+        if (can_move_to(x, y) || (x == g->u.posx() && y == g->u.posy()) ||
             ((has_flag(MF_BASHES) || has_flag(MF_BORES)) &&
              g->m.bash_rating(bash_estimate(), x, y) >= 0)) {
             next.x = x;
             next.y = y;
-        } else if (can_move_to(x2, y) || (x == g->u.posx && y == g->u.posy) ||
+        } else if (can_move_to(x2, y) || (x == g->u.posx() && y == g->u.posy()) ||
                    ((has_flag(MF_BASHES) || has_flag(MF_BORES)) &&
                     g->m.bash_rating(bash_estimate(), x2, y) >= 0)) {
             next.x = x2;
             next.y = y;
-        } else if (can_move_to(x, y2) || (x == g->u.posx && y == g->u.posy) ||
+        } else if (can_move_to(x, y2) || (x == g->u.posx() && y == g->u.posy()) ||
                    ((has_flag(MF_BASHES) || has_flag(MF_BORES)) &&
                     g->m.bash_rating(bash_estimate(), x, y2) >= 0)) {
             next.x = x;
             next.y = y2;
-        } else if (can_move_to(x3, y) || (x == g->u.posx && y == g->u.posy) ||
+        } else if (can_move_to(x3, y) || (x == g->u.posx() && y == g->u.posy()) ||
                    ((has_flag(MF_BASHES) || has_flag(MF_BORES)) &&
                     g->m.bash_rating(bash_estimate(), x3, y) >= 0)) {
             next.x = x3;
             next.y = y;
-        } else if (can_move_to(x, y3) || (x == g->u.posx && y == g->u.posy) ||
+        } else if (can_move_to(x, y3) || (x == g->u.posx() && y == g->u.posy()) ||
                    ((has_flag(MF_BASHES) || has_flag(MF_BORES)) &&
                     g->m.bash_rating(bash_estimate(), x, y3) >= 0)) {
             next.x = x;
@@ -723,7 +776,7 @@ int monster::attack_at(int x, int y) {
     int mondex = g->mon_at(x, y);
     int npcdex = g->npc_at(x, y);
 
-    if(x == g->u.posx && y == g->u.posy) {
+    if(x == g->u.posx() && y == g->u.posy()) {
         melee_attack(g->u);
         return 1;
     }
@@ -786,7 +839,7 @@ int monster::move_to(int x, int y, bool force)
 
     //Check for moving into/out of water
     bool was_water = g->m.is_divable(posx(), posy());
-    bool will_be_water = g->m.is_divable(x, y);
+    bool will_be_water = !has_flag( MF_FLIES ) && can_submerge() && g->m.is_divable(x, y);
 
     if(was_water && !will_be_water && g->u.sees(x, y)) {
         //Use more dramatic messages for swimming monsters
@@ -801,6 +854,7 @@ int monster::move_to(int x, int y, bool force)
 
     setpos(x, y);
     footsteps(x, y);
+    underwater = will_be_water;
     if(is_hallucination()) {
         //Hallucinations don't do any of the stuff after this point
         return 1;
@@ -822,6 +876,9 @@ int monster::move_to(int x, int y, bool force)
         if (dice(3, type->sk_dodge + 1) < dice(3, tr->get_avoidance())) {
             tr->trigger(this, posx(), posy());
         }
+    }
+    if( !will_be_water && ( has_flag(MF_DIGS) || has_flag(MF_CAN_DIG) ) ) {
+        underwater = g->m.has_flag("DIGGABLE", posx(), posy() );
     }
     // Diggers turn the dirt into dirtmound
     if (digging()){
@@ -900,8 +957,9 @@ void monster::stumble(bool moved)
        !(has_flag(MF_NO_BREATHE) && !has_flag(MF_SWIMS) && !has_flag(MF_AQUATIC)
            && g->m.has_flag("SWIMMABLE", nx, ny)
            && !g->m.has_flag("SWIMMABLE", posx(), posy())) &&
-       (g->u.posx != nx || g->u.posy != ny) &&
-       (g->mon_at(nx, ny) == -1)) {
+       (g->u.posx() != nx || g->u.posy() != ny) &&
+       (g->mon_at(nx, ny) == -1) &&
+       (g->npc_at(nx, ny) == -1) ) {
     point tmp(nx, ny);
     valid_stumbles.push_back(tmp);
    }
@@ -916,8 +974,7 @@ void monster::stumble(bool moved)
  int cx = valid_stumbles[choice].x;
  int cy = valid_stumbles[choice].y;
 
- moves -= calc_movecost(posx(), posy(), cx, cy);
- setpos(cx, cy);
+ move_to( cx, cy, false );
 
  // Here we have to fix our plans[] list,
  // acquiring a new path to the previous target.
@@ -927,7 +984,7 @@ void monster::stumble(bool moved)
   if (g->m.sees( pos(), plans.back(), -1, bresenham_slope))
    set_dest(plans.back().x, plans.back().y, bresenham_slope);
   else if (sees( g->u, bresenham_slope ))
-   set_dest(g->u.posx, g->u.posy, bresenham_slope);
+   set_dest(g->u.posx(), g->u.posy(), bresenham_slope);
   else //durr, i'm suddenly calm. what was i doing?
    plans.clear();
  }
@@ -972,6 +1029,7 @@ void monster::knock_back_from(int x, int y)
    z->apply_damage( this, bp_torso, type->size );
    z->add_effect("stunned", 1);
   }
+  z->check_dead_state();
 
   if (u_see)
    add_msg(_("The %s bounces off a %s!"), name().c_str(), z->name().c_str());
@@ -988,6 +1046,7 @@ void monster::knock_back_from(int x, int y)
   if (u_see)
    add_msg(_("The %s bounces off %s!"), name().c_str(), p->name.c_str());
 
+  p->check_dead_state();
   return;
  }
 
@@ -1020,6 +1079,7 @@ void monster::knock_back_from(int x, int y)
  } else { // It's no wall
   setpos(to);
  }
+    check_dead_state();
 }
 
 
@@ -1041,7 +1101,7 @@ bool monster::will_reach(int x, int y)
  if (has_flag(MF_IMMOBILE) && (posx() != x || posy() != y))
   return false;
 
- std::vector<point> path = g->m.route(posx(), posy(), x, y, false);
+ std::vector<point> path = g->m.route( posx(), posy(), x, y, 0 );
  if (path.empty())
    return false;
 
@@ -1062,7 +1122,7 @@ bool monster::will_reach(int x, int y)
 
 int monster::turns_to_reach(int x, int y)
 {
-    std::vector<point> path = g->m.route(posx(), posy(), x, y, false);
+    std::vector<point> path = g->m.route( posx(), posy(), x, y, 0 );
     if (path.empty())
         return 999;
 

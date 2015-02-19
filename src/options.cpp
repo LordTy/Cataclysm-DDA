@@ -3,11 +3,10 @@
 #include "output.h"
 #include "debug.h"
 #include "translations.h"
-#include "file_finder.h"
+#include "filesystem.h"
 #include "cursesdef.h"
 #include "path_info.h"
 #include "mapsharing.h"
-#include "file_wrapper.h"
 
 #ifdef SDLTILES
 #include "cata_tiles.h"
@@ -244,7 +243,7 @@ std::string cOpt::getValue()
 
     } else if (sType == "float") {
         std::stringstream ssTemp;
-        ssTemp.imbue(std::locale("C"));
+        ssTemp.imbue(std::locale::classic());
         const int precision = (fStep >= 0.09) ? 1 : (fStep >= 0.009) ? 2 : (fStep >= 0.0009) ? 3 : 4;
         ssTemp.precision(precision);
         ssTemp << std::fixed << fSet;
@@ -394,7 +393,7 @@ void cOpt::setValue(std::string sSetIn)
 
     } else if (sType == "float") {
         std::istringstream ssTemp(sSetIn);
-        ssTemp.imbue(std::locale("C"));
+        ssTemp.imbue(std::locale::classic());
         float tmpFloat;
         ssTemp >> tmpFloat;
         if(ssTemp) {
@@ -584,12 +583,15 @@ void initOptions()
     // TODO: scan for languages like we do for tilesets.
     optionNames[""] = _("System language");
     // Note: language names are in their own language and are *not* translated at all.
+    // Note: Somewhere in github PR was better link to msdn.microsoft.com with language names.
+    // http://en.wikipedia.org/wiki/List_of_language_names
     optionNames["cs"] = R"(Čeština)";
     optionNames["en"] = R"(English)";
     optionNames["fi"] = R"(Suomi)";
-    optionNames["fr_FR"] =  R"(Français (France))";
-    optionNames["de_DE"] = R"(Deutsch (Deutschland))";
+    optionNames["fr"] =  R"(Français)";
+    optionNames["de"] = R"(Deutsch)";
     optionNames["it_IT"] = R"(Italiano)";
+    optionNames["el"] = R"(Ελληνικά)";
     optionNames["es_AR"] = R"(Español (Argentina))";
     optionNames["es_ES"] = R"(Español (España))";
     optionNames["ja"] = R"(日本語)";
@@ -603,7 +605,7 @@ void initOptions()
     optionNames["zh_CN"] = R"(中文(天朝))";
     optionNames["zh_TW"] = R"(中文(台灣))";
     OPTIONS["USE_LANG"] = cOpt("interface", _("Language"), _("Switch Language. Requires restart."),
-                               ",cs,en,fi,fr_FR,de_DE,it_IT,es_AR,es_ES,ja,ko,pl,pt_BR,pt_PT,ru,sr,vi,zh_CN,zh_TW",
+                               ",cs,en,fi,fr,de,it_IT,el,es_AR,es_ES,ja,ko,pl,pt_BR,pt_PT,ru,sr,vi,zh_CN,zh_TW",
                                ""
                               );
 
@@ -729,11 +731,16 @@ void initOptions()
                                            _("Centered or to edge, shift the view toward the selected item if it is outside of your current viewport."),
                                            "false,centered,edge",  "centered"
                                           );
-                                          
+
     OPTIONS["AUTO_INV_ASSIGN"] = cOpt("interface", _("Auto inventory letters"),
                                         _("If false, new inventory items will only get letters assigned if they had one before."),
                                         true
                                        );
+
+    OPTIONS["ITEM_HEALTH_BAR"] = cOpt("interface", _("Show item health bars"),
+                                     _("If true, show item health bars instead of reinforced, scratched etc. text."),
+                                     true
+                                    );
 
     mOptionsSort["interface"]++;
 
@@ -1427,10 +1434,10 @@ bool use_narrow_sidebar()
 std::string get_tileset_names(std::string dir_path)
 {
     const std::string defaultTilesets = "hoder,deon";
-
-    const std::string filename = "tileset.txt";                             // tileset-info-file
-    std::vector<std::string> files;
-    files = file_finder::get_files_from_path(filename, dir_path, true);     // search it
+    // tileset-info-file
+    const std::string filename = "tileset.txt";
+    // search it
+    auto const files = get_files_from_path(filename, dir_path, true);
 
     std::string tileset_names;
     bool first_tileset_name = true;

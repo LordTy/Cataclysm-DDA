@@ -1,6 +1,7 @@
 #include "mtype.h"
 #include "translations.h"
 #include "monstergenerator.h"
+#include "mondeath.h"
 
 mtype::mtype ()
 {
@@ -27,8 +28,8 @@ mtype::mtype ()
     hp = 0;
     def_chance = 0;
     dies.push_back(&mdeath::normal);
-    sp_attack.push_back(NULL);
-    sp_defense = NULL;
+    sp_attack.push_back(nullptr);
+    sp_defense = nullptr;
     luminance = 0;
     flags.insert(MF_HUMAN);
     flags.insert(MF_BONES);
@@ -171,4 +172,19 @@ itype_id mtype::get_meat_itype() const
         }
     }
     return "null";
+}
+
+mf_attitude monfaction::attitude( const monfaction *other ) const
+{
+    auto found = attitude_map.find( other );
+    if( found != attitude_map.end() ) {
+        return found->second;
+    }
+
+    if( other->base_faction != nullptr ) {
+        return attitude( other->base_faction );
+    }
+
+    // Shouldn't happen
+    return MFA_FRIENDLY;
 }

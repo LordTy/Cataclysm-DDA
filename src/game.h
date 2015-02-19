@@ -2,7 +2,6 @@
 #define GAME_H
 
 #include "mtype.h"
-#include "monster.h"
 #include "map.h"
 #include "lightmap.h"
 #include "player.h"
@@ -77,19 +76,12 @@ enum target_mode {
     TARGET_MODE_TURRET
 };
 
-// Refactoring into base monster class.
-
-struct monster_and_count {
-    monster critter;
-    int count;
-    monster_and_count(monster M, int C) : critter (M), count (C) {};
-};
-
 struct special_game;
 struct mtype;
 struct mission_type;
 class map;
 class player;
+class monster;
 class calendar;
 class DynamicDataLoader;
 
@@ -160,29 +152,6 @@ class game
         void add_event(event_type type, int on_turn, int faction_id = -1,
                        int x = INT_MIN, int y = INT_MIN);
         bool event_queued(event_type type);
-        /**
-         * Sound at (x, y) of intensity (vol)
-         * @param x x-position of sound.
-         * @param y y-position of sound.
-         * @param vol Volume of sound.
-         * @param description Description of the sound for the player,
-         * if non-empty string a message is generated.
-         * @param ambient If false, the sound interrupts player activities.
-         * If true, activities continue.
-         * @returns true if the player could hear the sound.
-         */
-        bool sound(int x, int y, int vol, std::string description, bool ambient = false);
-        /** Functions identical to sound(..., true). */
-        bool ambient_sound(int x, int y, int vol, std::string description);
-        /** Creates a list of coordinates at which to draw footsteps. */
-        void add_footstep(int x, int y, int volume, int distance, monster *source);
-        std::vector<std::vector<point> > footsteps;
-        std::vector<point> footsteps_source;
-        /** Calculates where footstep marker should appear and puts those points into the result.
-         *  It also clears @ref footsteps_source and @ref footsteps. */
-        void calculate_footstep_markers(std::vector<point> &result);
-        /** Draws visual footstep cues to monsters moving out of the players sight. */
-        void draw_footsteps();
         /** Create explosion at (x, y) of intensity (power) with (shrapnel) chunks of shrapnel. */
         void explosion(int x, int y, int power, int shrapnel, bool fire, bool blast = true);
         /** Triggers a flashbang explosion at (x, y). */
@@ -240,7 +209,7 @@ class game
         bool revive_corpse(int x, int y, int n);
         /** Revives the corpse at (x, y) by item pointer. Caller handles item deletion. */
         bool revive_corpse(int x, int y, item *it);
-        /** Handles player input parts of gun firing (target selection, etc.). Actual firing is done 
+        /** Handles player input parts of gun firing (target selection, etc.). Actual firing is done
          *  in player::fire_gun(). This is interactive and should not be used by NPC's. */
         void plfire(bool burst, int default_target_x = -1, int default_target_y = -1);
         void throw_item(player &p, int tarx, int tary, item &thrown,
@@ -251,7 +220,7 @@ class game
          *  throw() and vehicle::aim_turrets() */
         std::vector<point> target(int &x, int &y, int lowx, int lowy, int hix,
                                   int hiy, std::vector <Creature *> t, int &target,
-                                  item *relevent, target_mode mode, 
+                                  item *relevent, target_mode mode,
                                   point from = point(-1, -1));
         /** Redirects to player::cancel_activity(). */
         void cancel_activity();
@@ -308,8 +277,6 @@ class game
         void teleport(player *p = NULL, bool add_teleglow = true);
         /** Handles swimming by the player. Called by plmove(). */
         void plswim(int x, int y);
-        /** Handles fishing with a fishing rod. */
-        void rod_fish(int sSkillLevel, int fishChance);
         /** Picks and spawns a random fish from the remaining fish list when a fish is caught. */
         void catch_a_monster(std::vector<monster*> &catchables, int posx, int posy, player *p, int catch_duration = 0);
         /** Returns the list of currently fishable monsters within distance of the player. */
@@ -332,7 +299,10 @@ class game
         Creature *is_hostile_nearby();
         Creature *is_hostile_very_close();
         void refresh_all();
-        void update_map(int &x, int &y);  // Called by plmove when the map updates
+        // Handles shifting coordinates transparently when moving between submaps.
+        // Helper to make calling with a player pointer less verbose.
+        void update_map(player *p);
+        void update_map(int &x, int &y);
         void update_overmap_seen(); // Update which overmap tiles we can see
         // Position of the player in overmap terrain coordinates, relative
         // to the current overmap (@ref cur_om).
@@ -355,34 +325,35 @@ class game
         // Look at nearby terrain ';', or select zone points
         point look_around(WINDOW *w_info = NULL, const point pairCoordsFirst = point(-1, -1));
 
+        void list_items_monsters();
         int list_items(const int iLastState); //List all items around the player
         int list_monsters(const int iLastState); //List all monsters around the player
         // Shared method to print "look around" info
         void print_all_tile_info(int lx, int ly, WINDOW *w_look, int column, int &line, bool mouse_hover);
 
-        bool list_items_match(item &item, std::string sPattern);
+        bool list_items_match(const item *item, std::string sPattern);
         int list_filter_high_priority(std::vector<map_item_stack> &stack, std::string prorities);
         int list_filter_low_priority(std::vector<map_item_stack> &stack, int start, std::string prorities);
         std::vector<map_item_stack> filter_item_stacks(std::vector<map_item_stack> stack,
                 std::string filter);
         std::vector<map_item_stack> find_nearby_items(int iRadius);
-        std::string ask_item_filter(WINDOW *window, int rows);
+        void draw_item_filter_rules(WINDOW *window, int rows);
         std::string ask_item_priority_high(WINDOW *window, int rows);
         std::string ask_item_priority_low(WINDOW *window, int rows);
         void draw_trail_to_square(int x, int y, bool bDrawX);
-        void reset_item_list_state(WINDOW *window, int height);
+        void reset_item_list_state(WINDOW *window, int height, bool bRadiusSort);
         std::string sFilter; // this is a member so that it's remembered over time
         std::string list_item_upvote;
         std::string list_item_downvote;
-        int inv(const std::string &title, const int &position = INT_MIN);
-        int inv_activatable(std::string title);
-        int inv_type(std::string title, item_cat inv_item_type = IC_NULL);
-        int inv_for_liquid(const item &liquid, const std::string title, bool auto_choose_single);
-        int inv_for_salvage(const std::string title);
-        item *inv_map_for_liquid(const item &liquid, const std::string title);
-        int inv_for_flag(const std::string flag, const std::string title, bool auto_choose_single);
-        int inv_for_filter(const std::string title, const item_filter filter );
-        int display_slice(indexed_invslice &, const std::string &, const int &position = INT_MIN);
+        int inv(const std::string &title, int position = INT_MIN);
+        int inv_activatable(std::string const &title);
+        int inv_type(std::string const &title, item_cat inv_item_type = IC_NULL);
+        int inv_for_liquid(const item &liquid, const std::string &title, bool auto_choose_single);
+        int inv_for_salvage(const std::string &title);
+        item *inv_map_for_liquid(const item &liquid, const std::string &title);
+        int inv_for_flag(const std::string &flag, const std::string &title, bool auto_choose_single);
+        int inv_for_filter(const std::string &title, item_filter filter );
+        int display_slice(indexed_invslice const&, const std::string &, int position = INT_MIN);
         int inventory_item_menu(int pos, int startx = 0, int width = 50, int position = 0);
         // Select items to drop.  Returns a list of pairs of position, quantity.
         std::list<std::pair<int, int>> multidrop();
@@ -487,7 +458,7 @@ class game
         void draw_explosion(int x, int y, int radius, nc_color col);
         void draw_bullet(Creature &p, int tx, int ty, int i, std::vector<point> trajectory, char bullet,
                          timespec &ts);
-        void draw_hit_mon(int x, int y, monster critter, bool dead = false);
+        void draw_hit_mon(int x, int y, const monster &critter, bool dead = false);
         void draw_hit_player(player *p, const int iDam, bool dead = false);
         void draw_line(const int x, const int y, const point center_point, std::vector<point> ret);
         void draw_line(const int x, const int y, std::vector<point> ret);
@@ -568,10 +539,10 @@ class game
         void init_weather();
         void init_weather_anim();
         void init_morale();
-        void init_skills() throw (std::string);
+        void init_skills();
         void init_professions();
         void init_faction_data();
-        void init_mongroups() throw (std::string);    // Initializes monster groups
+        void init_mongroups();    // Initializes monster groups
         void init_construction(); // Initializes construction "recipes"
         void init_missions();     // Initializes mission templates
         void init_autosave();     // Initializes autosave parameters
@@ -621,7 +592,6 @@ class game
         void handbrake ();
         void control_vehicle(); // Use vehicle controls  '^'
         void examine(int examx = -1, int examy = -1);// Examine nearby terrain  'e'
-        void advanced_inv();
 
         // Establish a grab on something.
         void grab();
@@ -637,8 +607,6 @@ class game
                                 int freed_volume_capacity) const;
         void reassign_item(int pos = INT_MIN); // Reassign the letter of an item  '='
         void butcher(); // Butcher a corpse  'B'
-        void complete_butcher(int index); // Finish the butchering process
-        void forage(); // Foraging ('a' on underbrush)
         void eat(int pos = INT_MIN); // Eat food or fuel  'E' (or 'a')
         void use_item(int pos = INT_MIN); // Use item; also tries E,R,W  'a'
         void use_wielded_item();
@@ -759,7 +727,7 @@ class game
         bool safemodeveh; // safemode while driving?
         int turnssincelastmon; // needed for auto run mode
         //  quit_status uquit;    // Set to true if the player quits ('Q')
-
+        bool bVMonsterLookFire;
         calendar nextspawn; // The turn on which monsters will spawn next.
         calendar nextweather; // The turn on which weather will shift next.
         int next_npc_id, next_faction_id, next_mission_id; // Keep track of UIDs
@@ -787,27 +755,7 @@ class game
         std::vector<point> destination_preview;
 
         Creature *is_hostile_within(int distance);
-        void activity_on_turn();
-        void activity_on_turn_game();
-        void activity_on_turn_drop();
-        void activity_on_turn_stash();
-        void activity_on_turn_pickup();
-        void activity_on_turn_move_items();
-        void activity_on_turn_vibe();
-        void activity_on_turn_fill_liquid();
-        void activity_on_turn_refill_vehicle();
-        void activity_on_turn_pulp();
-        void activity_on_turn_start_fire_lens();
-        void activity_on_finish();
-        void activity_on_finish_reload();
-        void activity_on_finish_train();
-        void activity_on_finish_firstaid();
-        void activity_on_finish_fish();
-        void activity_on_finish_vehicle();
-        void activity_on_finish_make_zlave();
-        void activity_on_finish_start_fire();
-        void activity_on_finish_hotwire();
-        void longsalvage(); // Salvage everything activity
+
         void move_save_to_graveyard();
         bool save_player_data();
 };

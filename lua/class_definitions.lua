@@ -3,17 +3,6 @@
 classes = {
     player = {
         attributes = {
-            posx = {
-                type = "int",
-                writable = false,
-                desc = "The x position of the player in the reality bubble."
-            },
-            posy = {
-                type = "int",
-                writable = false,
-                desc = "The y position of the player in the reality bubble."
-            },
-
             hunger = {
                 type = "int",
                 writable = true
@@ -77,6 +66,15 @@ classes = {
             }
         },
         functions = {
+            posx = {
+                args = {},
+                rval = "int"
+            },
+            posy = {
+                args = {},
+                rval = "int"
+            },
+
             has_disease = {
                 args = { "string" },
                 rval = "bool"
@@ -271,10 +269,6 @@ classes = {
     monster = {
         parent = "Creature",
         attributes = {
-            hp = {
-                type = "int",
-                writable = true
-            },
             moves = {
                 type = "int",
                 writable = true
@@ -296,6 +290,14 @@ classes = {
             make_friendly = {
                 args = {},
                 rval = nil
+            },
+            get_hp = {
+                args = {},
+                rval = "int"
+            },
+            get_hp = {
+                args = {},
+                rval = "int"
             },
             posx = {
                 args = {},
@@ -379,14 +381,14 @@ classes = {
                 args = {"string"},
                 rval = "bool"
             },
-	    has_flag = {
-	        args = {"string"},
-		rval = "bool"
-	    },
-	    set_flag = {
-	        args = {"string", "bool"},
-		rval = nil
-	    }
+            has_flag = {
+                args = {"string"},
+                rval = "bool"
+            },
+            set_flag = {
+                args = {"string", "bool"},
+                rval = nil
+            }
         }
     },
     mongroup = {

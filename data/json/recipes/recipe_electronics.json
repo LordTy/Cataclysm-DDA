@@ -283,6 +283,31 @@
   ]
 },{
   "type" : "recipe",
+  "result": "electric_lantern",
+  "category": "CC_ELECTRONIC",
+  "subcategory": "CSC_ELECTRONIC_LIGHTING",
+  "skill_used": "electronics",
+  "difficulty": 3,
+  "time": 10000,
+  "reversible": true,
+  "autolearn": false,
+  "book_learn": [[ "manual_electronics", 3 ] , [ "mag_electronics", 4 ] , [ "textbook_electronics", 2 ]],
+  "qualities" : [ {"id":"SCREW","level":1,"amount":1} ],
+  "tools": [
+    [
+      [ "soldering_iron", 7 ],
+      [ "toolset", 7 ]
+    ]
+  ],
+  "components": [
+    [ [ "cable", 8 ] ],
+    [ [ "plastic_chunk", 2 ] ],
+    [ [ "circuit", 2 ] ],
+    [ [ "e_scrap", 2 ] ],
+    [ [ "amplifier", 1 ] ]
+  ]
+},{
+  "type" : "recipe",
   "result": "lightstrip_inactive",
   "category": "CC_ELECTRONIC",
   "subcategory": "CSC_ELECTRONIC_LIGHTING",
@@ -1570,7 +1595,7 @@
   ],
   "components": [
     [ [ "frame", 1 ] ],
-    [ ["vac_sealer", 1] ],
+    [ ["vac_sealer", 1], ["makeshift_sealer", 1] ],
     [ [ "dehydrator", 1 ] ],
     [ [ "water_purifier", 1 ] ],
     [ [ "press", 1 ] ],
@@ -1867,6 +1892,7 @@
   "book_learn": [[ "recipe_lab_elec", 7 ] , [ "textbook_robots", 7 ]],
   "qualities" : [ {"id":"SCREW","level":1,"amount":1} ],
   "tools": [
+    [ [ "software_hacking", 1 ] ],
     [
       [ "soldering_iron", 14 ],
       [ "toolset", 14 ]
@@ -1875,7 +1901,6 @@
   "components": [
     [ [ "laptop", 1 ] ],
     [ [ "receiver", 2 ] ],
-    [ [ "software_hacking", 1 ] ],
     [ [ "e_scrap", 2 ] ],
     [ [ "rechargeable_battery", 1 ] ],
     [ [ "antenna", 1] ]
@@ -1928,6 +1953,25 @@
   ]
 },{
   "type" : "recipe",
+  "result": "atomic_lamp",
+  "category": "CC_ELECTRONIC",
+  "subcategory": "CSC_ELECTRONIC_LIGHTING",
+  "skill_used": "electronics",
+  "difficulty": 3,
+  "time": 30000,
+  "reversible": true,
+  "autolearn": false,
+  "book_learn": [[ "recipe_caseless", 6 ]],
+  "qualities" : [ {"id":"SCREW","level":1,"amount":1} ],
+  "components": [
+    [ [ "plastic_chunk", 2 ] ],
+    [ [ "superglue", 1 ] ],
+    [ [ "power_supply", 1 ] ],
+    [ [ "cable", 2 ] ],
+    [ [ "plut_cell", 2 ] ]
+  ]
+},{
+  "type" : "recipe",
   "result": "atomic_coffeepot",
   "category": "CC_ELECTRONIC",
   "subcategory": "CSC_ELECTRONIC_TOOLS",
@@ -1939,10 +1983,11 @@
   "book_learn": [[ "recipe_caseless", 8 ]],
   "qualities" : [ {"id":"SCREW","level":1,"amount":1} ],
   "components": [
-    [ [ "plastic_chunk", 3 ] ],
+    [ [ "plastic_chunk", 5 ] ],
     [ [ "superglue", 1 ] ],
     [ [ "power_supply", 1 ] ],
     [ [ "element", 1 ] ],
+    [ [ "scrap", 2 ] ],
     [ [ "plut_cell", 1 ] ]
   ]
 },{
@@ -2238,6 +2283,49 @@
     [ [ "broken_eyebot", 2 ] ],
     [ [ "power_supply", 1 ] ],
     [ [ "cable", 5 ] ]
+  ]
+},{
+  "type" : "recipe",
+  "result": "makeshift_sealer",
+  "category": "CC_ELECTRONIC",
+  "subcategory": "CSC_ELECTRONIC_TOOLS",
+  "skill_used": "electronics",
+  "skills_required": [ "mechanics", 2 ],
+  "difficulty": 4,
+  "time": 40000,
+  "reversible": true,
+  "autolearn": false,
+  "book_learn": [[ "advanced_electronics", 4 ] , [ "mag_electronics", 6 ] , [ "manual_electronics", 5 ]],
+  "qualities" : [
+    {"id":"SCREW","level":1,"amount":1}
+  ],
+  "tools": [
+    [
+      [ "soldering_iron", 10 ],
+      [ "toolset", 10 ]
+    ]
+  ], "components": [
+    [
+      [ "scrap", 4 ]
+    ],
+    [ 
+      [ "plastic_chunk", 2 ]
+    ],
+    [
+      [ "motor_small", 1 ]
+    ],
+    [
+      [ "superglue", 2 ]
+    ],
+    [
+      [ "element", 2 ]
+    ],
+    [
+      [ "hose", 1 ]
+    ],
+    [
+      [ "power_supply", 1 ]
+    ]
   ]
 }
 ]

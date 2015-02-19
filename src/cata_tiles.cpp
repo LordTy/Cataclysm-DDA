@@ -1,5 +1,4 @@
 #if (defined SDLTILES)
-#include <algorithm>
 #include "cata_tiles.h"
 #include "debug.h"
 #include "json.h"
@@ -7,6 +6,10 @@
 #include "monstergenerator.h"
 #include "item.h"
 #include "veh_type.h"
+#include "filesystem.h"
+#include "sounds.h"
+
+#include <algorithm>
 #include <fstream>
 
 #include "SDL2/SDL_image.h"
@@ -104,8 +107,8 @@ void cata_tiles::get_tile_information(std::string dir_path, std::string &json_pa
     const std::string default_json = FILENAMES["defaulttilejson"];    // defaults
     const std::string default_tileset = FILENAMES["defaulttilepng"];
 
-    std::vector<std::string> files;
-    files = file_finder::get_files_from_path(filename, dir_path, true);     // search for the files (tileset.txt)
+    // search for the files (tileset.txt)
+    auto files = get_files_from_path(filename, dir_path, true);
 
     for(std::vector<std::string>::iterator it = files.begin(); it != files.end(); ++it) {   // iterate through every file found
         std::ifstream fin;
@@ -592,8 +595,8 @@ void cata_tiles::draw(int destx, int desty, int centerx, int centery, int width,
         }
     }
     // check to see if player is located at ter
-    else if (g->u.posx + g->u.view_offset_x != g->ter_view_x ||
-             g->u.posy + g->u.view_offset_y != g->ter_view_y) {
+    else if (g->u.posx() + g->u.view_offset_x != g->ter_view_x ||
+             g->u.posy() + g->u.view_offset_y != g->ter_view_y) {
         draw_from_id_string("cursor", C_NONE, empty_string, g->ter_view_x, g->ter_view_y, 0, 0);
     }
 
@@ -614,7 +617,7 @@ void cata_tiles::get_window_tile_counts(const int width, const int height, int &
 
 bool cata_tiles::draw_from_id_string(std::string id, int x, int y, int subtile, int rota)
 {
-    return cata_tiles::draw_from_id_string(id, C_NONE, empty_string, x, y, subtile, rota);
+    return cata_tiles::draw_from_id_string(std::move(id), C_NONE, empty_string, x, y, subtile, rota);
 }
 
 bool cata_tiles::draw_from_id_string(std::string id, TILE_CATEGORY category,
@@ -632,26 +635,17 @@ bool cata_tiles::draw_from_id_string(std::string id, TILE_CATEGORY category,
         return false;
     }
 
-    std::string seasonal_id;
-    switch (calendar::turn.get_season()) {
-    case SPRING:
-        seasonal_id = id + "_season_spring";
-        break;
-    case SUMMER:
-        seasonal_id = id + "_season_summer";
-        break;
-    case AUTUMN:
-        seasonal_id = id + "_season_autumn";
-        break;
-    case WINTER:
-        seasonal_id = id + "_season_winter";
-        break;
-    }
+    constexpr size_t suffix_len = 15;
+    constexpr char season_suffix[4][suffix_len] = {
+        "_season_spring", "_season_summer", "_season_autumn", "_season_winter"};
+   
+    std::string seasonal_id = id + season_suffix[calendar::turn.get_season()];
+
     tile_id_iterator it = tile_ids.find(seasonal_id);
     if (it == tile_ids.end()) {
         it = tile_ids.find(id);
     } else {
-        id = seasonal_id;
+        id = std::move(seasonal_id);
     }
 
     if (it == tile_ids.end()) {
@@ -784,11 +778,12 @@ bool cata_tiles::draw_from_id_string(std::string id, TILE_CATEGORY category,
 
     // check to see if the display_tile is multitile, and if so if it has the key related to subtile
     if (subtile != -1 && display_tile->multitile) {
-        std::vector<std::string> display_subtiles = display_tile->available_subtiles;
-        if (std::find(display_subtiles.begin(), display_subtiles.end(), multitile_keys[subtile]) != display_subtiles.end()) {
+        auto const &display_subtiles = display_tile->available_subtiles;
+        auto const end = std::end(display_subtiles);
+        if (std::find(begin(display_subtiles), end, multitile_keys[subtile]) != end) {
             // append subtile name to tile and re-find display_tile
-            const std::string new_id = id + "_" + multitile_keys[subtile];
-            return draw_from_id_string(new_id, x, y, -1, rota);
+            return draw_from_id_string(
+                std::move(id.append("_", 1).append(multitile_keys[subtile])),x, y, -1, rota);
         }
     }
 
@@ -1427,10 +1422,8 @@ void cata_tiles::draw_zones_frame()
 void cata_tiles::draw_footsteps_frame()
 {
     static const std::string footstep_tilestring = "footstep";
-    std::vector<point> markers;
-    g->calculate_footstep_markers(markers);
-    for (std::vector<point>::const_iterator a = markers.begin(); a != markers.end(); ++a) {
-        draw_from_id_string(footstep_tilestring, a->x, a->y, 0, 0);
+    for( const auto &footstep : sounds::get_footstep_markers() ) {
+        draw_from_id_string(footstep_tilestring, footstep.x, footstep.y, 0, 0);
     }
 }
 /* END OF ANIMATION FUNCTIONS */
@@ -1454,7 +1447,7 @@ void cata_tiles::init_light()
 LIGHTING cata_tiles::light_at(int x, int y)
 {
     /** Logic */
-    const int dist = rl_dist(g->u.posx, g->u.posy, x, y);
+    const int dist = rl_dist(g->u.posx(), g->u.posy(), x, y);
 
     int real_max_sight_range = sightrange_light > sightrange_max ? sightrange_light : sightrange_max;
     int distance_to_look = DAYLIGHT_LEVEL;

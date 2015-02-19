@@ -1,19 +1,18 @@
 #ifndef IUSE_H
 #define IUSE_H
 
-#include "monstergenerator.h"
 #include <map>
 #include <string>
 #include <vector>
+#include "enums.h"
 
 class item;
 class player;
 class JsonObject;
+class MonsterGenerator;
 
 // iuse methods returning a bool indicating whether to consume a charge of the item being used.
-class iuse
-{
-public:
+namespace iuse {
 // FOOD AND DRUGS (ADMINISTRATION)
     int raw_meat            (player*, item*, bool, point);
     int raw_fat             (player*, item*, bool, point);
@@ -73,12 +72,9 @@ public:
     int mycus               (player*, item*, bool, point);
     int dogfood             (player*, item*, bool, point);
     int catfood             (player*, item*, bool, point);
-
 // TOOLS
-    int firestarter         (player *, item *, bool, point);
-    int resolve_firestarter_use(player *p, item *, point);
-    int calculate_time_for_lens_fire (player *p, float light_level);
     int sew                 (player *, item *, bool, point);
+    int sew_advanced        (player *, item *, bool, point);
     int extra_battery       (player *, item *, bool, point);
     int rechargeable_battery(player *, item *, bool, point);
     int scissors            (player *, item *, bool, point);
@@ -160,10 +156,7 @@ public:
     int vortex              (player *, item *, bool, point);
     int dog_whistle         (player *, item *, bool, point);
     int vacutainer          (player *, item *, bool, point);
-    static bool valid_to_cut_up(const item *it);
-    static int cut_up(player *p, item *it, item *cut, bool);
     int knife               (player *, item *, bool, point);
-    static int cut_log_into_planks(player *p, item *it);
     int lumber              (player *, item *, bool, point);
     int oxytorch            (player *, item *, bool, point);
     int hacksaw             (player *, item *, bool, point);
@@ -216,45 +209,40 @@ public:
     int cable_attach        (player *, item *, bool, point);
     int weather_tool        (player *, item *, bool, point);
     int survivor_belt       (player *, item *, bool, point);
-
 // MACGUFFINS
     int mcg_note            (player *, item *, bool, point);
-
-    int radiocar(player *, item *, bool, point);
-    int radiocaron(player *, item *, bool, point);
-    int radiocontrol(player *, item *, bool, point);
-
-    int multicooker(player *, item *, bool, point);
-
-    int remoteveh(player *, item *, bool, point);
-
+    int radiocar            (player *, item *, bool, point);
+    int radiocaron          (player *, item *, bool, point);
+    int radiocontrol        (player *, item *, bool, point);
+    int multicooker         (player *, item *, bool, point);
+    int remoteveh           (player *, item *, bool, point);
 // ARTIFACTS
     /* This function is used when an artifact is activated.
        It examines the item's artifact-specific properties.
        See artifact.h for a list.                        */
     int artifact            (player *, item *, bool, point);
 
-    // Helper for listening to music, might deserve a better home, but not sure where.
-    static void play_music( player *p, point source, int volume );
+    bool valid_to_cut_up(const item *it);
+    int cut_up              (player *p, item *it, item *cut, bool);
+    int cut_log_into_planks (player *p, item *it);
 
-    static void reset_bullet_pulling();
-    static void load_bullet_pulling(JsonObject &jo);
-protected:
-    typedef std::pair<std::string, int> result_t;
-    typedef std::vector<result_t> result_list_t;
-    typedef std::map<std::string, result_list_t> bullet_pulling_t;
-    static bullet_pulling_t bullet_pulling_recipes;
+    // Helper for listening to music, might deserve a better home, but not sure where.
+    void play_music( player *p, point source, int volume );
+
+    void reset_bullet_pulling();
+    void load_bullet_pulling(JsonObject &jo);
 };
 
-
-typedef int (iuse::*use_function_pointer)(player*,item*,bool, point);
+using use_function_pointer = int (*)(player*, item*, bool, point);
 
 class iuse_actor {
 protected:
-    iuse_actor() { }
+    iuse_actor() = default;
 public:
-    virtual ~iuse_actor() { }
+    std::string type;
+    virtual ~iuse_actor() = default;
     virtual long use(player*, item*, bool, point) const = 0;
+    virtual bool can_use( const player*, const item*, bool, const point& ) const { return true; }
     virtual iuse_actor *clone() const = 0;
 };
 
@@ -311,8 +299,22 @@ public:
     void operator=(const use_function &other);
 
     bool operator==(use_function f) const {
-        return function_type == USE_FUNCTION_CPP && f.function_type == USE_FUNCTION_CPP &&
-        f.cpp_function == cpp_function;
+        if( function_type != f.function_type ) {
+            return false;
+        }
+
+        switch( function_type ) {
+            case USE_FUNCTION_NONE:
+                return true;
+            case USE_FUNCTION_CPP:
+                return f.cpp_function == cpp_function;
+            case USE_FUNCTION_ACTOR_PTR:
+                return f.actor_ptr->type == actor_ptr->type;
+            case USE_FUNCTION_LUA:
+                return f.lua_function == lua_function;
+            default:
+                return false;
+        }
     }
 
     bool operator==(use_function_pointer f) const {

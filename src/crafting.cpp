@@ -46,14 +46,14 @@ recipe::~recipe()
 }
 
 recipe::recipe() :
-    id(0), result("null"), skill_used(NULL), reversible(false),
+    id(0), result("null"), contained(false),skill_used(NULL), reversible(false),
     autolearn(false), learn_by_disassembly(-1), result_mult(1),
     paired(false)
 {
 }
 
 recipe::recipe(std::string pident, int pid, itype_id pres, std::string pcat,
-               std::string psubcat, std::string &to_use,
+               bool pcontained,std::string psubcat, std::string &to_use,
                std::map<std::string, int> &to_require,
                bool preversible, bool pautolearn, int plearn_dis,
                int pmult, bool ppaired, std::vector<byproduct> &bps,
@@ -61,7 +61,7 @@ recipe::recipe(std::string pident, int pid, itype_id pres, std::string pcat,
                int pb_rsize) :
     ident(pident), id(pid), result(pres), time(ptime), difficulty(pdiff),
     byproducts(bps), cat(pcat),
-    subcat(psubcat), reversible(preversible), autolearn(pautolearn),
+    contained(pcontained),subcat(psubcat), reversible(preversible), autolearn(pautolearn),
     learn_by_disassembly(plearn_dis), batch_rscale(pb_rscale),
     batch_rsize(pb_rsize), result_mult(pmult), paired(ppaired)
 {
@@ -171,6 +171,7 @@ void load_recipe(JsonObject &jsobj)
     int difficulty = jsobj.get_int( "difficulty" );
 
     // optional
+    bool contained = jsobj.get_bool("contained",false);
     std::string subcategory = jsobj.get_string("subcategory", "");
     bool reversible = jsobj.get_bool("reversible", false);
     std::string skill_used = jsobj.get_string("skill_used", "");
@@ -224,7 +225,7 @@ void load_recipe(JsonObject &jsobj)
     std::string rec_name = result + id_suffix;
     int id = check_recipe_ident(rec_name, jsobj); // may delete recipes
 
-    recipe *rec = new recipe(rec_name, id, result, category, subcategory, skill_used,
+    recipe *rec = new recipe(rec_name, id, result, category,contained, subcategory, skill_used,
                              requires_skills, reversible, autolearn,
                              learn_by_disassembly, result_mult, paired, bps,
                              time, difficulty, batch_rscale, batch_rsize);
@@ -442,7 +443,7 @@ std::vector<item> player::get_eligible_containers_for_crafting()
             }
         }
     }
-    for( auto &i : g->m.i_at(posx, posy) ) {
+    for( auto &i : g->m.i_at(posx(), posy()) ) {
         if (is_container_eligible_for_crafting(i)) {
             conts.push_back(i);
         }
@@ -1317,6 +1318,7 @@ void player::make_all_craft(const std::string &id_to_make, int batch_size)
 item recipe::create_result(handedness handed) const
 {
     item newit(result, calendar::turn, false, handed);
+    if (contained == true) {newit = newit.in_its_container();}
     if (result_mult != 1) {
         newit.charges *= result_mult;
     }
@@ -1584,11 +1586,11 @@ void set_item_inventory(item &newit)
         if (!g->u.can_pickVolume(newit.volume())) { //Accounts for result_mult
             add_msg(_("There's no room in your inventory for the %s, so you drop it."),
                     newit.tname().c_str());
-            g->m.add_item_or_charges(g->u.posx, g->u.posy, newit);
+            g->m.add_item_or_charges(g->u.posx(), g->u.posy(), newit);
         } else if (!g->u.can_pickWeight(newit.weight(), !OPTIONS["DANGEROUS_PICKUPS"])) {
             add_msg(_("The %s is too heavy to carry, so you drop it."),
                     newit.tname().c_str());
-            g->m.add_item_or_charges(g->u.posx, g->u.posy, newit);
+            g->m.add_item_or_charges(g->u.posx(), g->u.posy(), newit);
         } else {
             newit = g->u.i_add(newit);
             add_msg(m_info, "%c - %s", newit.invlet == 0 ? ' ' : newit.invlet, newit.tname().c_str());
@@ -1611,7 +1613,7 @@ std::list<item> player::consume_items(const std::vector<item_comp> &components, 
     } use_from;
     item_comp selected_comp("", 0);
     inventory map_inv;
-    map_inv.form_from_map(point(posx, posy), PICKUP_RANGE);
+    map_inv.form_from_map(pos(), PICKUP_RANGE);
 
     for( const auto &component : components ) {
         itype_id type = component.type;
@@ -1697,7 +1699,7 @@ std::list<item> player::consume_items(const std::vector<item_comp> &components, 
         }
     }
 
-    const point loc(posx, posy);
+    const point &loc = pos();
     const bool by_charges = (item::count_by_charges( selected_comp.type ) && selected_comp.count > 0);
     // Count given to use_amount/use_charges, changed by those functions!
     int real_count = (selected_comp.count > 0) ? selected_comp.count * batch : abs(selected_comp.count);
@@ -1741,7 +1743,7 @@ void player::consume_tools(const std::vector<tool_comp> &tools, int batch)
 {
     bool found_nocharge = false;
     inventory map_inv;
-    map_inv.form_from_map(point(posx, posy), PICKUP_RANGE);
+    map_inv.form_from_map(pos(), PICKUP_RANGE);
     std::vector<tool_comp> player_has;
     std::vector<tool_comp> map_has;
     // Use charges of any tools that require charges used
@@ -1932,7 +1934,7 @@ void player::disassemble(int dis_pos)
         } else {
             //twice the volume then multiplied by 10 (a book with volume 3 will give 60 pages)
             int num_pages = (dis_item->volume() * 2) * 10;
-            g->m.spawn_item(posx, posy, "paper", 0, num_pages);
+            g->m.spawn_item(posx(), posy(), "paper", 0, num_pages);
             i_rem(dis_pos);
         }
         return;
@@ -1968,7 +1970,7 @@ void player::complete_disassemble()
         return;
     }
     item *org_item;
-    auto items_on_ground = g->m.i_at(posx, posy);
+    auto items_on_ground = g->m.i_at(posx(), posy());
     if (from_ground) {
         if (static_cast<size_t>(item_pos) >= items_on_ground.size()) {
             add_msg(_("The item has vanished."));
@@ -1989,7 +1991,7 @@ void player::complete_disassemble()
     float component_success_chance = std::min(std::pow(0.8f, dis_item.damage), 1.0);
 
     int veh_part = -1;
-    vehicle *veh = g->m.veh_at(posx, posy, veh_part);
+    vehicle *veh = g->m.veh_at(posx(), posy(), veh_part);
     if(veh != 0) {
         veh_part = veh->part_with_feature(veh_part, "CARGO");
     }
@@ -2005,7 +2007,7 @@ void player::complete_disassemble()
     // remove the item, except when it's counted by charges and still has some
     if (!org_item->count_by_charges() || org_item->charges <= 0) {
         if (from_ground) {
-            g->m.i_rem( posx, posy, item_pos );
+            g->m.i_rem( posx(), posy(), item_pos );
         } else {
             i_rem(item_pos);
         }
@@ -2083,7 +2085,7 @@ void player::complete_disassemble()
             } else if (veh != NULL && veh->add_item(veh_part, act_item)) {
                 // add_item did put the items in the vehicle, nothing further to be done
             } else {
-                g->m.add_item_or_charges(posx, posy, act_item);
+                g->m.add_item_or_charges(posx(), posy(), act_item);
             }
         }
     }

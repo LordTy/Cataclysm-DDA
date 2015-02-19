@@ -4,12 +4,11 @@
 #include "catacharset.h"
 #include "translations.h"
 #include "uistate.h"
-#include "helper.h"
 #include "auto_pickup.h"
 #include "messages.h"
 #include "player_activity.h"
-
 #include "advanced_inv.h"
+#include "compatibility.h"
 
 #include <map>
 #include <set>
@@ -19,6 +18,7 @@
 #include <cmath>
 #include <vector>
 #include <cassert>
+#include <cstdlib>
 
 advanced_inventory::advanced_inventory()
     : head_height( 5 )
@@ -57,8 +57,8 @@ advanced_inventory::advanced_inventory()
 advanced_inventory::~advanced_inventory()
 {
 
-    uistate.adv_inv_last_coords.x = g->u.posx;
-    uistate.adv_inv_last_coords.y = g->u.posy;
+    uistate.adv_inv_last_coords.x = g->u.posx();
+    uistate.adv_inv_last_coords.y = g->u.posy();
     uistate.adv_inv_leftarea = panes[left].area;
     uistate.adv_inv_rightarea = panes[right].area;
     uistate.adv_inv_leftindex = panes[left].index;
@@ -156,10 +156,10 @@ void advanced_inventory::print_items( advanced_inventory_pane &pane, bool active
     if( pane.area == AIM_INVENTORY ) {
         //right align
         int hrightcol = columns -
-                        helper::to_string_int( g->u.convert_weight( g->u.weight_carried() ) ).length() - 3 - //"xxx.y/"
-                        helper::to_string_int( g->u.convert_weight( g->u.weight_capacity() ) ).length() - 3 - //"xxx.y_"
-                        helper::to_string_int( g->u.volume_carried() ).length() - 1 - //"xxx/"
-                        helper::to_string_int( g->u.volume_capacity() - 2 ).length() - 1; //"xxx|"
+                        to_string( g->u.convert_weight( g->u.weight_carried() ) ).length() - 3 - //"xxx.y/"
+                        to_string( g->u.convert_weight( g->u.weight_capacity() ) ).length() - 3 - //"xxx.y_"
+                        to_string( g->u.volume_carried() ).length() - 1 - //"xxx/"
+                        to_string( g->u.volume_capacity() - 2 ).length() - 1; //"xxx|"
         nc_color color = c_ltgreen;//red color if overload
         if( g->u.weight_carried() > g->u.weight_capacity() ) {
             color = c_red;
@@ -250,8 +250,7 @@ void advanced_inventory::print_items( advanced_inventory_pane &pane, bool active
         }
 
         //print item name
-        std::string it_name = utf8_truncate( it.display_name(), max_name_length );
-        mvwprintz( window, 6 + x, compact ? 1 : 4, thiscolor, "%s", it_name.c_str() );
+        trim_and_print( window, 6 + x, compact ? 1 : 4, max_name_length, thiscolor, "%s", it.display_name().c_str() );
 
         //print src column
         if( pane.area == AIM_ALL && !compact ) {
@@ -461,14 +460,14 @@ int advanced_inv_area::get_item_count() const
     } else if( veh != nullptr ) {
         return veh->get_items(vstor).size();
     } else {
-        return g->m.i_at( g->u.posx + offx, g->u.posy + offy ).size();
+        return g->m.i_at( g->u.posx() + offx, g->u.posy() + offy ).size();
     }
 }
 
 void advanced_inv_area::init()
 {
-    x = g->u.posx + offx;
-    y = g->u.posy + offy;
+    x = g->u.posx() + offx;
+    y = g->u.posy() + offy;
     veh = nullptr;
     vstor = -1;
     volume = 0; // must update in main function
@@ -483,8 +482,8 @@ void advanced_inv_area::init()
                 desc = _( "Not dragging any vehicle" );
                 break;
             }
-            x = g->u.posx + g->u.grab_point.x;
-            y = g->u.posy + g->u.grab_point.y;
+            x = g->u.posx() + g->u.grab_point.x;
+            y = g->u.posy() + g->u.grab_point.y;
             veh = g->m.veh_at( x, y, vstor );
             if( veh ) {
                 vstor = veh->part_with_feature( vstor, "CARGO", false );
@@ -523,7 +522,7 @@ void advanced_inv_area::init()
         case AIM_NORTHWEST:
         case AIM_NORTH:
         case AIM_NORTHEAST:
-            veh = g->m.veh_at( g->u.posx + offx, g->u.posy + offy, vstor );
+            veh = g->m.veh_at( g->u.posx() + offx, g->u.posy() + offy, vstor );
             if( veh ) {
                 vstor = veh->part_with_feature( vstor, "CARGO", false );
             }
@@ -534,11 +533,11 @@ void advanced_inv_area::init()
                 max_volume = veh->max_volume( vstor );
             } else {
                 veh = nullptr;
-                canputitemsloc = g->m.can_put_items( g->u.posx + offx, g->u.posy + offy );
+                canputitemsloc = g->m.can_put_items( g->u.posx() + offx, g->u.posy() + offy );
                 max_size = MAX_ITEM_IN_SQUARE;
-                max_volume = g->m.max_volume( g->u.posx + offx, g->u.posy + offy );
-                if( g->m.has_graffiti_at( g->u.posx + offx, g->u.posy + offy ) ) {
-                    desc = g->m.graffiti_at( g->u.posx + offx, g->u.posy + offy );
+                max_volume = g->m.max_volume( g->u.posx() + offx, g->u.posy() + offy );
+                if( g->m.has_graffiti_at( g->u.posx() + offx, g->u.posy() + offy ) ) {
+                    desc = g->m.graffiti_at( g->u.posx() + offx, g->u.posy() + offy );
                 }
             }
             break;
@@ -568,8 +567,8 @@ void advanced_inventory::init()
     panes[right].sortby = ( advanced_inv_sortby ) uistate.adv_inv_rightsort;
     panes[left].area = ( aim_location ) uistate.adv_inv_leftarea;
     panes[right].area = ( aim_location ) uistate.adv_inv_rightarea;
-    bool moved = ( uistate.adv_inv_last_coords.x != g->u.posx ||
-                   uistate.adv_inv_last_coords.y != g->u.posy );
+    bool moved = ( uistate.adv_inv_last_coords.x != g->u.posx() ||
+                   uistate.adv_inv_last_coords.y != g->u.posy() );
     if( !moved ) {
         src = ( side ) uistate.adv_inv_src;
         dest = ( side ) uistate.adv_inv_dest;
@@ -602,21 +601,6 @@ void advanced_inventory::init()
     panes[right].window = right_window;
 }
 
-bool cached_lcmatch( const std::string &str, const std::string &findstr,
-                     std::map<std::string, bool> &filtercache )
-{
-    if( filtercache.find( str ) == filtercache.end() ) {
-        std::string ret = "";
-        ret.reserve( str.size() );
-        transform( str.begin(), str.end(), std::back_inserter( ret ), tolower );
-        bool ismatch = ( ret.find( findstr ) != std::string::npos );
-        filtercache[ str ] = ismatch;
-        return ismatch;
-    } else {
-        return filtercache[ str ];
-    }
-}
-
 advanced_inv_listitem::advanced_inv_listitem( item *an_item, int index, int count,
         aim_location _area )
     : idx( index )
@@ -624,7 +608,7 @@ advanced_inv_listitem::advanced_inv_listitem( item *an_item, int index, int coun
     , it( an_item )
     , name( an_item->tname( count ) )
     , name_without_prefix( an_item->tname( 1, false ) )
-    , autopickup( hasPickupRule( an_item->tname() ) )
+    , autopickup( hasPickupRule( an_item->tname( 1, false ) ) )
     , stacks( count )
     , volume( an_item->volume() * stacks )
     , weight( an_item->weight() * stacks )
@@ -674,12 +658,24 @@ bool advanced_inv_listitem::is_item_entry() const
 
 bool advanced_inventory_pane::is_filtered( const advanced_inv_listitem &it ) const
 {
-    return is_filtered( it.name );
+    return is_filtered( it.it );
 }
 
-bool advanced_inventory_pane::is_filtered( const std::string &name ) const
+bool advanced_inventory_pane::is_filtered( const item *it ) const
 {
-    return !filter.empty() && !cached_lcmatch( name, filter, filtercache );
+    if ( filter.empty() ) {
+        return false;
+    }
+
+    std::string str = it->tname();
+    if( filtercache.find( str ) == filtercache.end() ) {
+        bool match = !g->list_items_match( it, filter );
+        filtercache[ str ] = match;
+
+        return match;
+    }
+
+    return filtercache[ str ];
 }
 
 template <typename Container>
@@ -738,7 +734,7 @@ void advanced_inventory_pane::add_items_from_area( advanced_inv_area &square )
         for( size_t x = 0; x < stacks.size(); ++x ) {
             auto &an_item = stacks[x]->front();
             advanced_inv_listitem it( &an_item, x, stacks[x]->size(), square.id );
-            if( is_filtered( it ) ) {
+            if( is_filtered( it.it ) ) {
                 continue;
             }
             square.volume += it.volume;
@@ -765,7 +761,7 @@ void advanced_inventory_pane::add_items_from_area( advanced_inv_area &square )
             i_stacked( m.i_at( square.x, square.y ) );
         for( size_t x = 0; x < stacks.size(); ++x ) {
             advanced_inv_listitem it( stacks[x].first, x, stacks[x].second, square.id );
-            if( is_filtered( it ) ) {
+            if( is_filtered( it.it ) ) {
                 continue;
             }
             square.volume += it.volume;
@@ -974,11 +970,11 @@ bool advanced_inventory::move_all_items()
 
     if( spane.area == AIM_INVENTORY ) {
         g->u.assign_activity( ACT_DROP, 0 );
-        g->u.activity.placement = point( darea.x - g->u.xpos(), darea.y - g->u.ypos() );
+        g->u.activity.placement = point( darea.x - g->u.posx(), darea.y - g->u.posy() );
 
         for( size_t index = 0; index < g->u.inv.size(); ++index ) {
             const auto &stack = g->u.inv.const_stack( index );
-            if( spane.is_filtered( stack.front().tname() ) ) {
+            if( spane.is_filtered( &(stack.front()) ) ) {
                 continue;
             }
             g->u.activity.values.push_back( index );
@@ -995,10 +991,10 @@ bool advanced_inventory::move_all_items()
         } else { // Vehicle and map destinations are handled the same.
             g->u.assign_activity( ACT_MOVE_ITEMS, 0 );
             // Stash the destination at the start of the values vector.
-            g->u.activity.values.push_back( darea.x - g->u.xpos() );
-            g->u.activity.values.push_back( darea.y - g->u.ypos() );
+            g->u.activity.values.push_back( darea.x - g->u.posx() );
+            g->u.activity.values.push_back( darea.y - g->u.posy() );
         }
-        g->u.activity.placement = point( sarea.x - g->u.xpos(), sarea.y - g->u.ypos() );
+        g->u.activity.placement = point( sarea.x - g->u.posx(), sarea.y - g->u.posy() );
 
         std::list<item>::iterator begin;
         std::list<item>::iterator end;
@@ -1013,7 +1009,7 @@ bool advanced_inventory::move_all_items()
         int index = -1;
         for( auto item_it = begin; item_it != end; ++item_it ) {
             index++;
-            if( spane.is_filtered( item_it->tname() ) ) {
+            if( spane.is_filtered( &(*item_it) ) ) {
                 continue;
             }
             g->u.activity.values.push_back( index );
@@ -1252,6 +1248,8 @@ void advanced_inventory::display()
             std::string filter = spane.filter;
             filter_edit = true;
 
+            g->draw_item_filter_rules(dpane.window, 12);
+
             do {
                 mvwprintz( spane.window, getmaxy( spane.window ) - 1, 2, c_cyan, "< " );
                 mvwprintz( spane.window, getmaxy( spane.window ) - 1, ( w_width / 2 ) - 3, c_cyan, " >" );
@@ -1263,6 +1261,7 @@ void advanced_inventory::display()
             } while( key != '\n' && key != KEY_ESCAPE );
             filter_edit = false;
             spane.redraw = true;
+            dpane.redraw = true;
         } else if( action == "RESET_FILTER" ) {
             spane.set_filter( "" );
         } else if( action == "TOGGLE_AUTO_PICKUP" ) {
@@ -1486,7 +1485,7 @@ void advanced_inventory::remove_item( advanced_inv_listitem &sitem )
     } else if( s.veh != nullptr ) {
         s.veh->remove_item( s.vstor, sitem.it );
     } else {
-        g->m.i_rem( g->u.posx + s.offx, g->u.posy + s.offy, sitem.it );
+        g->m.i_rem( g->u.posx() + s.offx, g->u.posy() + s.offy, sitem.it );
     }
 }
 
@@ -1632,9 +1631,9 @@ bool advanced_inventory::query_charges( aim_location destarea, const advanced_in
             popupmsg = string_format( _( "Destination can only hold %d! Move how many? (0 to cancel) " ), amount );
         }
         const long possible_max = std::min( input_amount, amount );
-        amount = helper::to_int( string_input_popup( popupmsg, 20,
-                                 helper::to_string_int( possible_max ),
-                                 "", "", -1, true ) );
+        amount = std::atoi( string_input_popup( popupmsg, 20,
+                                 to_string( possible_max ),
+                                 "", "", -1, true ).c_str() );
         if( amount <= 0 ) {
             return false;
         }
@@ -1824,8 +1823,8 @@ void advanced_inv_area::set_container_position()
             break;
     }
 
-    x = g->u.posx + offx;
-    y = g->u.posy + offy;
+    x = g->u.posx() + offx;
+    y = g->u.posy() + offy;
 
     veh = g->m.veh_at( x, y, vstor );
     if( veh ) {
@@ -1836,7 +1835,8 @@ void advanced_inv_area::set_container_position()
     }
 }
 
-void game::advanced_inv()
+
+void advanced_inv()
 {
     advanced_inventory advinv;
     advinv.display();

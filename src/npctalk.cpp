@@ -2092,6 +2092,9 @@ std::vector<talk_response> gen_responses(talk_topic topic, npc *p)
                 RESPONSE(_("Want to travel with me?"));
                     SUCCESS(TALK_SUGGEST_FOLLOW);
             }
+            RESPONSE(_("Let's trade items."));
+                SUCCESS(TALK_NONE);
+                SUCCESS_ACTION(&talk_function::start_trade);
             if (p->chatbin.missions_assigned.size() == 1) {
                 RESPONSE(_("About that job..."));
                     SUCCESS(TALK_MISSION_INQUIRE);
@@ -2119,7 +2122,7 @@ std::vector<talk_response> gen_responses(talk_topic topic, npc *p)
                 int score = p->op_of_u.trust + p->op_of_u.value * 3 +
                               p->personality.altruism * 2;
                 int missions_value = p->assigned_missions_value();
-                if (g->u.has_amount(_("mininuke"), 1)) {
+                if (g->u.has_amount("mininuke", 1)) {
                     RESPONSE(_("Because I'm holding a thermal detonator!"));
                         SUCCESS(TALK_GIVE_EQUIPMENT);
                             SUCCESS_ACTION(&talk_function::give_equipment);
@@ -2418,7 +2421,7 @@ std::vector<talk_response> gen_responses(talk_topic topic, npc *p)
             RESPONSE(_("Let's trade items."));
                 SUCCESS(TALK_NONE);
                 SUCCESS_ACTION(&talk_function::start_trade);
-            if (p->is_following() && g->m.camp_at(g->u.posx, g->u.posy)) {
+            if (p->is_following() && g->m.camp_at(g->u.posx(), g->u.posy())) {
                 RESPONSE(_("Wait at this base."));
                     SUCCESS(TALK_DONE);
                         SUCCESS_ACTION(&talk_function::assign_base);
@@ -2969,7 +2972,7 @@ void talk_function::bulk_trade_accept(npc *p, itype_id it)
 void talk_function::assign_base(npc *p)
 {
     // TODO: decide what to do upon assign? maybe pathing required
-    basecamp* camp = g->m.camp_at(g->u.posx, g->u.posy);
+    basecamp* camp = g->m.camp_at(g->u.posx(), g->u.posy());
     if(!camp) {
         dbg(D_ERROR) << "talk_function::assign_base: Assigned to base but no base here.";
         return;
@@ -3127,7 +3130,7 @@ void talk_function::player_leaving(npc *p)
 
 void talk_function::drop_weapon(npc *p)
 {
- g->m.add_item_or_charges(p->posx, p->posy, p->remove_weapon());
+ g->m.add_item_or_charges(p->posx(), p->posy(), p->remove_weapon());
 }
 
 void talk_function::player_weapon_away(npc *p)
@@ -3139,7 +3142,7 @@ void talk_function::player_weapon_away(npc *p)
 void talk_function::player_weapon_drop(npc *p)
 {
     (void)p; // unused
-    g->m.add_item_or_charges(g->u.posx, g->u.posy, g->u.remove_weapon());
+    g->m.add_item_or_charges(g->u.posx(), g->u.posy(), g->u.remove_weapon());
 }
 
 void talk_function::lead_to_safety(npc *p)
@@ -3228,6 +3231,9 @@ void parse_tags(std::string &phrase, const player *u, const npc *me)
   debugmsg("Called parse_tags() with NULL pointers!");
   return;
  }
+
+ phrase = remove_color_tags( phrase );
+
  size_t fa, fb;
  std::string tag;
  do {
@@ -3247,12 +3253,12 @@ void parse_tags(std::string &phrase, const player *u, const npc *me)
   }
   if (!replaced) { // Special, dynamic tags go here
    if (tag == "<yrwp>")
-    phrase.replace(fa, l, u->weapon.tname());
+    phrase.replace( fa, l, remove_color_tags( u->weapon.tname() ) );
    else if (tag == "<mywp>") {
     if (me->weapon.type->id == "null")
      phrase.replace(fa, l, _("fists"));
     else
-     phrase.replace(fa, l, me->weapon.tname());
+     phrase.replace( fa, l, remove_color_tags( me->weapon.tname() ) );
    } else if (tag == "<ammo>") {
     if (!me->weapon.is_gun())
      phrase.replace(fa, l, _("BADAMMO"));
@@ -3536,10 +3542,13 @@ TAB key to switch lists, letters to pick items, Enter to finalize, Esc to quit,\
                         _("You: $%.2f"), (double)g->u.cash/100);
             // Draw their list of items, starting from them_off
             for (int i = them_off; i < (int)theirs.size() && i < (17 + them_off); i++) {
-                mvwprintz(w_them, i - them_off + 1, 1,
-                        (getting_theirs[i] ? c_white : c_ltgray), "%c %c %s - $%.2f",
+                trim_and_print(w_them, i - them_off + 1, 1, 30,
+                        (getting_theirs[i] ? c_white : c_ltgray), "%c %c %s",
                         char((i -them_off) + 'a'), (getting_theirs[i] ? '+' : '-'),
-                        utf8_substr(theirs[i]->tname(), 0, 25).c_str(),
+                        theirs[i]->tname().c_str());
+
+                mvwprintz(w_them, i - them_off + 1, 32,
+                        (getting_theirs[i] ? c_white : c_ltgray), "$%.2f",
                         (double)their_price[i]/100);
             }
             if (them_off > 0) {
@@ -3550,10 +3559,13 @@ TAB key to switch lists, letters to pick items, Enter to finalize, Esc to quit,\
             }
             // Draw your list of items, starting from you_off
             for (int i = you_off; i < (int)yours.size() && (i < (17 + you_off)) ; i++) {
-                mvwprintz(w_you, i - you_off + 1, 1,
-                        (getting_yours[i] ? c_white : c_ltgray), "%c %c %s - $%.2f",
+                trim_and_print(w_you, i - you_off + 1, 1, 30,
+                        (getting_yours[i] ? c_white : c_ltgray), "%c %c %s",
                         char((i -you_off) + 'a'), (getting_yours[i] ? '+' : '-'),
-                        utf8_substr(yours[i]->tname(), 0,25).c_str(),
+                        yours[i]->tname().c_str());
+
+                mvwprintz(w_you, i - you_off + 1, 32,
+                        (getting_yours[i] ? c_white : c_ltgray), "$%.2f",
                         (double)your_price[i]/100);
             }
             if (you_off > 0) {

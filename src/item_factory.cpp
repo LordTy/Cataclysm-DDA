@@ -4,7 +4,6 @@
 #include "addiction.h"
 #include "translations.h"
 #include "item_group.h"
-#include "bodypart.h"
 #include "crafting.h"
 #include "iuse_actor.h"
 #include "item.h"
@@ -197,8 +196,8 @@ void Item_factory::init()
     iuse_function_list["CATFOOD"] = &iuse::catfood;
 
     // TOOLS
-    iuse_function_list["FIRESTARTER"] = &iuse::firestarter;
     iuse_function_list["SEW"] = &iuse::sew;
+    iuse_function_list["SEW_ADVANCED"] = &iuse::sew_advanced;
     iuse_function_list["EXTRA_BATTERY"] = &iuse::extra_battery;
     iuse_function_list["RECHARGEABLE_BATTERY"] = &iuse::rechargeable_battery;
     iuse_function_list["EXTINGUISHER"] = &iuse::extinguisher;
@@ -358,18 +357,18 @@ void Item_factory::create_inital_categories()
     // (simply define a category in json with the id
     // taken from category_id_* and that definition will get
     // used - see load_item_category)
-    add_category(category_id_guns, -21, _("guns"));
-    add_category(category_id_ammo, -20, _("ammo"));
-    add_category(category_id_weapons, -19, _("weapons"));
-    add_category(category_id_tools, -18, _("tools"));
-    add_category(category_id_clothing, -17, _("clothing"));
-    add_category(category_id_food, -16, _("food"));
-    add_category(category_id_drugs, -15, _("drugs"));
-    add_category(category_id_books, -14, _("books"));
-    add_category(category_id_mods, -13, _("mods"));
-    add_category(category_id_cbm, -12, _("bionics"));
-    add_category(category_id_mutagen, -11, _("mutagen"));
-    add_category(category_id_other, -10, _("other"));
+    add_category(category_id_guns, -21, _("GUNS"));
+    add_category(category_id_ammo, -20, _("AMMO"));
+    add_category(category_id_weapons, -19, _("WEAPONS"));
+    add_category(category_id_tools, -18, _("TOOLS"));
+    add_category(category_id_clothing, -17, _("CLOTHING"));
+    add_category(category_id_food, -16, _("FOOD"));
+    add_category(category_id_drugs, -15, _("DRUGS"));
+    add_category(category_id_books, -14, _("BOOKS"));
+    add_category(category_id_mods, -13, _("MODS"));
+    add_category(category_id_cbm, -12, _("BIONICS"));
+    add_category(category_id_mutagen, -11, _("MUTAGEN"));
+    add_category(category_id_other, -10, _("OTHER"));
 }
 
 void Item_factory::add_category(const std::string &id, int sort_rank, const std::string &name)
@@ -596,6 +595,7 @@ void Item_factory::load_ammo(JsonObject &jo)
     load_slot( new_item_template->ammo, jo );
     new_item_template->stack_size = jo.get_int( "stack_size", new_item_template->ammo->def_charges );
     load_basic_info( jo, new_item_template );
+    load_slot( new_item_template->spawn, jo );
 }
 
 void Item_factory::load( islot_gun &slot, JsonObject &jo )
@@ -759,10 +759,10 @@ void Item_factory::load_comestible(JsonObject &jo)
         comest_template->healthy = jo.get_int("healthy", 0);
     }
     comest_template->fun = jo.get_int("fun", 0);
-    
+
     //Default to 91 as an approximation of a real world season length.
     comest_template->grow = jo.get_int("grow", 91);
-    
+
     comest_template->add = addiction_type(jo.get_string("addiction_type"));
 
     itype *new_item_template = comest_template;
@@ -1321,6 +1321,7 @@ template<typename IuseActorType>
 use_function load_actor( JsonObject obj )
 {
     std::unique_ptr<IuseActorType> actor( new IuseActorType() );
+    actor->type = obj.get_string("type");
     actor->load( obj );
     return use_function( actor.release() );
 }
@@ -1348,6 +1349,10 @@ use_function Item_factory::use_from_object(JsonObject obj)
         return load_actor<ups_based_armor_actor>( obj );
     } else if( type == "reveal_map" ) {
         return load_actor<reveal_map_actor>( obj );
+    } else if( type == "firestarter" ) {
+        return load_actor<firestarter_actor>( obj );
+    } else if( type == "extended_firestarter" ) {
+        return load_actor<extended_firestarter_actor>( obj );
     } else {
         obj.throw_error( "unknown use_action", "type" );
         return use_function(); // line above throws, but the compiler does not know \-:
@@ -1451,7 +1456,7 @@ phase_id Item_factory::phase_from_tag(Item_tag name)
     } else {
         return PNULL;
     }
-};
+}
 
 void Item_factory::set_intvar(std::string tag, unsigned int &var, int min, int max)
 {
@@ -1479,7 +1484,12 @@ const item_category *Item_factory::get_category(const std::string &id)
 
 const use_function *Item_factory::get_iuse(const std::string &id)
 {
-    return &iuse_function_list.at(id);
+    const auto &iter = iuse_function_list.find( id );
+    if( iter != iuse_function_list.end() ) {
+        return &iter->second;
+    }
+
+    return nullptr;
 }
 
 const std::string &Item_factory::calc_category( const itype *it )

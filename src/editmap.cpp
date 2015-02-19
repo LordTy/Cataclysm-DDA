@@ -7,7 +7,6 @@
 #include "options.h"
 #include "auto_pickup.h"
 #include "debug.h"
-#include "helper.h"
 #include "editmap.h"
 #include "map.h"
 #include "output.h"
@@ -16,6 +15,7 @@
 #include "trap.h"
 #include "mapdata.h"
 #include "overmapbuffer.h"
+#include "compatibility.h"
 
 #include <fstream>
 #include <sstream>
@@ -25,6 +25,7 @@
 #include <string>
 #include <math.h>
 #include <vector>
+#include <cstdlib>
 #include "debug.h"
 
 #define dbg(x) DebugLog((DebugLevel)(x),D_GAME) << __FILE__ << ":" << __LINE__ << ": "
@@ -67,7 +68,7 @@ std::vector<std::string> fld_string ( std::string str, int width ) {
     }
     lines.push_back( str.substr( linestart ) );
     return lines;
-};
+}
 
 
 template<class SAVEOBJ>
@@ -209,8 +210,8 @@ bool editmap::eget_direction(int &x, int &y, const std::string &action) const
     x = 0;
     y = 0;
     if ( action == "CENTER" ) {
-        x = ( g->u.posx - ( target.x ) );
-        y = ( g->u.posy - ( target.y ) );
+        x = ( g->u.posx() - ( target.x ) );
+        y = ( g->u.posy() - ( target.y ) );
     } else if ( action == "LEFT_WIDE" ) {
         x = 0 - (tmaxx / 2);
     } else if ( action == "DOWN_WIDE" ) {
@@ -260,8 +261,8 @@ void editmap::uphelp (std::string txt1, std::string txt2, std::string title)
 
 point editmap::edit()
 {
-    target.x = g->u.posx + g->u.view_offset_x;
-    target.y = g->u.posy + g->u.view_offset_y;
+    target.x = g->u.posx() + g->u.view_offset_x;
+    target.y = g->u.posy() + g->u.view_offset_y;
     input_context ctxt("EDITMAP");
     ctxt.register_directions();
     ctxt.register_action("LEFT_WIDE");
@@ -567,7 +568,7 @@ void editmap::update_view(bool update_info)
         }
 
         if (!g->m.has_flag("CONTAINER", target.x, target.y) && g->m.i_at(target.x, target.y).size() > 0) {
-            mvwprintw(w_info, off, 1, _("There is a %s there."),
+            trim_and_print(w_info, off, 1, getmaxx( w_info ), c_ltgray, _("There is a %s there."),
                       g->m.i_at(target.x, target.y).front().tname().c_str());
             off++;
             if (g->m.i_at(target.x, target.y).size() > 1) {
@@ -1241,8 +1242,8 @@ int editmap::edit_itm()
                             intval = (int)it->light.width;
                             break;
                     }
-                    int retval = helper::to_int (
-                                     string_input_popup( "set: ", 20, helper::to_string_int(  intval ) )
+                    int retval = std::atoi (
+                                     string_input_popup( "set: ", 20, to_string(  intval ) ).c_str()
                                  );
                     if ( intval != retval ) {
                         if (imenu.ret == imenu_bday ) {
@@ -1255,6 +1256,13 @@ int editmap::edit_itm()
                             it->burnt = retval;
                             imenu.entries[imenu_burnt].txt = string_format("burnt: %d", it->burnt);
                         } else if (imenu.ret == imenu_luminance ) {
+                            int x, y;
+                            if (it->is_emissive() && !retval) {
+                                g->m.get_submap_at(target.x, target.y, x, y)->update_lum_rem(*it, x, y);
+                            } else if (!it->is_emissive() && retval) {
+                                g->m.get_submap_at(target.x, target.y, x, y)->update_lum_add(*it, x, y);
+                            }
+
                             it->light.luminance = (unsigned short)retval;
                             imenu.entries[imenu_luminance].txt = string_format("lum: %f", (float)it->light.luminance);
                         } else if (imenu.ret == imenu_direction ) {
@@ -1679,6 +1687,7 @@ int editmap::mapgen_preview( real_coords &tc, uimenu &gmenu )
                             memcpy( *destsm->frn, srcsm->frn, sizeof(srcsm->frn) ); // furniture
                             memcpy( *destsm->trp, srcsm->trp, sizeof(srcsm->trp) ); // traps
                             memcpy( *destsm->rad, srcsm->rad, sizeof(srcsm->rad) ); // radiation
+                            memcpy( *destsm->lum, srcsm->lum, sizeof(srcsm->lum) ); // emissive items
                             for (int x = 0; x < SEEX; ++x) {
                                 for (int y = 0; y < SEEY; ++y) {
                                     destsm->itm[x][y].swap( srcsm->itm[x][y] );

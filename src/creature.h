@@ -177,10 +177,15 @@ class Creature
         virtual int deal_projectile_attack(Creature *source, double missed_by,
                                            const projectile &proj, dealt_damage_instance &dealt_dam);
 
-        // deals the damage via an attack. Allows armor mitigation etc.
-        // Most sources of external damage should use deal_damage
-        // Mutates the damage_instance& object passed in to reflect the
-        // post-mitigation object
+        /**
+         * Deals the damage via an attack. Allows armor mitigation etc.
+         * Most sources of external damage should use deal_damage
+         * Mutates the damage_instance& object passed in to reflect the
+         * post-mitigation object.
+         * Does nothing if this creature is already dead.
+         * Does not call @ref check_dead_state (see there).
+         * @ref source The attacking creature, can be null.
+         */
         virtual dealt_damage_instance deal_damage(Creature *source, body_part bp,
                 const damage_instance &d);
         // for each damage type, how much gets through and how much pain do we
@@ -199,12 +204,21 @@ class Creature
         virtual bool is_hallucination() const = 0;
         // returns true if health is zero or otherwise should be dead
         virtual bool is_dead_state() const = 0;
+        /**
+         * This function checks the creatures @ref is_dead_state and (if true) calls @ref die.
+         * You can either call this function after hitting this creature, or let the game
+         * call it during @ref game::cleanup_dead.
+         * As @ref die has many side effects (messages, on-death-triggers, ...), you should be
+         * careful when calling this and expect that at least a "The monster dies!" message might
+         * have been printed. If you want to print any message relating to the attack (e.g. how
+         * much damage has been dealt, how the attack was performed, what has been blocked...), do
+         * it *before* calling this function.
+         */
+        void check_dead_state();
 
-        // xpos and ypos, because posx/posy are used as public variables in
-        // player.cpp and therefore referenced everywhere
-        virtual int xpos() const = 0;
-        virtual int ypos() const = 0;
-        virtual point pos() const = 0;
+        virtual int posx() const = 0;
+        virtual int posy() const = 0;
+        virtual const point &pos() const = 0;
 
         struct compare_by_dist_to_point {
             point center;
@@ -311,6 +325,7 @@ class Creature
         virtual m_size get_size() const = 0;
         virtual int get_hp( hp_part bp = num_hp_parts ) const = 0;
         virtual int get_hp_max( hp_part bp = num_hp_parts ) const = 0;
+        virtual int hp_percentage() const = 0;
         virtual std::string get_material() const
         {
             return "flesh";
@@ -404,6 +419,7 @@ class Creature
             str_cur, dex_cur, per_cur, int_cur;
 
         int moves, pain;
+        bool underwater;
 
         void draw(WINDOW *w, int plx, int ply, bool inv) const;
         /**
@@ -436,6 +452,7 @@ class Creature
 
     protected:
         Creature *killer; // whoever killed us. this should be NULL unless we are dead
+        void set_killer( Creature *killer );
 
         // Storing body_part as an int to make things easier for hash and JSON
         std::unordered_map<std::string, std::unordered_map<body_part, effect, std::hash<int>>> effects;

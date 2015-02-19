@@ -14,17 +14,6 @@
 #include "trap.h"
 #include "mapdata.h"
 #include "translations.h"
-#include <map>
-#include <set>
-#include <algorithm>
-#include <string>
-#include <fstream>
-#include <sstream>
-#include <math.h>
-#include <vector>
-#ifndef _MSC_VER
-#include <unistd.h>
-#endif
 #include "debug.h"
 #include "weather.h"
 #include "monstergenerator.h"
@@ -39,14 +28,26 @@
 #include "profession.h"
 #include "skill.h"
 #include "vehicle.h"
-#include "file_finder.h"
+#include "filesystem.h"
 
-#define ARRAY_SIZE(array) ( sizeof( array ) / sizeof( array[0] ) )
-
-//
 #include "mission.h"
 #include "faction.h"
 #include "savegame.h"
+
+#if !defined(_MSC_VER)
+#include <unistd.h>
+#endif
+
+#include <map>
+#include <set>
+#include <algorithm>
+#include <string>
+#include <fstream>
+#include <sstream>
+#include <math.h>
+#include <vector>
+
+#define ARRAY_SIZE(array) ( sizeof( array ) / sizeof( array[0] ) )
 /*
  * Properly reuse a stringstream object for line by line parsing
  */
@@ -1137,6 +1138,9 @@ static bool unserialize_legacy(std::ifstream & fin ) {
             getline(fin, databuff); // Clear out the endline
             getline(fin, databuff);
             it_tmp.load_info(databuff);
+            if( it_tmp.is_emissive() ) {
+                sm->update_lum_add(it_tmp, itx, ity);
+            }
             sm->itm[itx][ity].push_back(it_tmp);
             if( it_tmp.active ) {
                 sm->active_items.add( std::prev(sm->itm[itx][ity].end()), point( itx, ity ) );
@@ -1366,6 +1370,7 @@ static void unserialize_legacy_submaps( std::ifstream &fin, const int num_submap
 
                 sm->set_furn(i, j, f_null);
                 sm->itm[i][j].clear();
+                sm->lum[i][j] = 0;
                 sm->set_trap(i, j, tr_null);
             }
         }
@@ -1409,6 +1414,9 @@ static void unserialize_legacy_submaps( std::ifstream &fin, const int num_submap
                 getline(fin, databuff); // Clear out the endline
                 getline(fin, databuff);
                 it_tmp.load_info(databuff);
+                if (it_tmp.is_emissive()) {
+                    sm->update_lum_add(it_tmp, itx, ity);
+                }
                 sm->itm[itx][ity].push_back(it_tmp);
                 if (it_tmp.active) {
                     sm->active_items.add( std::prev(sm->itm[itx][ity].end()), point( itx, ity ) );
@@ -1498,11 +1506,7 @@ void mapbuffer::load( std::string worldname )
     if( num_submaps > 0 ) {
         // Chunked up saves need to be fully loaded to convert them to json.
         // Hopefully this is the last time we ever need to do this.
-        std::vector<std::string> map_files = file_finder::get_files_from_path(
-            ".map", world_map_path.str(), true, true );
-        if( map_files.empty() ) {
-            return;
-        }
+        auto const map_files = get_files_from_path(".map", world_map_path.str(), true, true);
         for( auto &map_file : map_files ) {
             fin.open( map_file.c_str() );
             unserialize_legacy_submaps( fin, num_submaps, ter_key, furn_key, trap_key );
@@ -1524,7 +1528,7 @@ void player::load_legacy(std::stringstream & dump)
  itype_id styletmp;
  std::string prof_ident;
 
- dump >> posx >> posy >> str_cur >> str_max >> dex_cur >> dex_max >>
+ dump >> position.x >> position.y >> str_cur >> str_max >> dex_cur >> dex_max >>
          int_cur >> int_max >> per_cur >> per_max >> power_level >>
          max_power_level >> hunger >> thirst >> fatigue >> stim >>
          pain >> pkill >> radiation >> cash >> recoil >> driving_recoil >>
@@ -1711,7 +1715,7 @@ void npc::load_legacy(std::stringstream & dump) {
    name += tmpname + " ";
  } while (tmpname != "||");
  name = name.substr(0, name.size() - 1); // Strip off trailing " "
- dump >> posx >> posy >> str_cur >> str_max >> dex_cur >> dex_max >>
+ dump >> position.x >> position.y >> str_cur >> str_max >> dex_cur >> dex_max >>
          int_cur >> int_max >> per_cur >> per_max >> hunger >> thirst >>
          fatigue >> stim >> pain >> pkill >> radiation >> cash >> recoil >>
          scent >> moves >> underwater >> dodges_left >> oxygen >> deathtmp >>
@@ -1873,9 +1877,9 @@ std::istream& operator>>(std::istream& is, SkillLevel& obj) {
 
 
 void monster::load_legacy(std::stringstream & dump) {
-    int idtmp, plansize, speed;
-    dump >> idtmp >> _posx >> _posy >> wandx >> wandy >> wandf >> moves >> speed >>
-         hp >> sp_timeout[0] >> plansize >> friendly >> faction_id >> mission_id >>
+    int idtmp, plansize, speed, faction_dummy;
+    dump >> idtmp >> position.x >> position.y >> wandx >> wandy >> wandf >> moves >> speed >>
+         hp >> sp_timeout[0] >> plansize >> friendly >> faction_dummy >> mission_id >>
          no_extra_death_drops >> dead >> anger >> morale;
 
     // load->int->str->int (possibly shifted)

@@ -6,15 +6,314 @@
 #include "monster.h"
 #include "monstergenerator.h"
 #include "overmapbuffer.h"
+#include "sounds.h"
+
 #include <math.h>    //sqrt
 #include <algorithm> //std::min
 #include <sstream>
-// mutation_effect handles things like destruction of armor, etc.
-void mutation_effect(player &p, std::string mut);
-// mutation_loss_effect handles what happens when you lose a mutation
-void mutation_loss_effect(player &p, std::string mut);
 
 std::vector<std::string> unpowered_traits;
+
+bool Character::has_trait(const std::string &b) const
+{
+    // Look for active mutations and traits
+    return my_mutations.find( b ) != my_mutations.end();
+}
+
+bool Character::has_base_trait(const std::string &b) const
+{
+    // Look only at base traits
+    return my_traits.find( b ) != my_traits.end();
+}
+
+void Character::toggle_trait(const std::string &flag)
+{
+    toggle_str_set(my_traits, flag); //Toggles a base trait on the player
+    toggle_str_set(my_mutations, flag); //Toggles corresponding trait in mutations list as well.
+    if( has_trait( flag ) ) {
+        mutation_effect(flag);
+    } else {
+        mutation_loss_effect(flag);
+    }
+    recalc_sight_limits();
+}
+
+void Character::toggle_mutation(const std::string &flag)
+{
+    toggle_str_set(my_mutations, flag); //Toggles a mutation on the player
+    recalc_sight_limits();
+}
+
+void Character::toggle_str_set( std::unordered_set< std::string > &set, const std::string &str )
+{
+    auto toggled_element = std::find( set.begin(), set.end(), str );
+    if( toggled_element == set.end() ) {
+        char new_key = ' ';
+        // Find a letter in inv_chars that isn't in trait_keys.
+        for( const auto &letter : inv_chars ) {
+            bool found = false;
+            for( const auto &key : trait_keys ) {
+                if( letter == key.second ) {
+                    found = true;
+                    break;
+                }
+            }
+            if( !found ) {
+                new_key = letter;
+                break;
+            }
+        }
+        set.insert( str );
+        trait_keys[str] = new_key;
+    } else {
+        set.erase( toggled_element );
+        trait_keys.erase(str);
+    }
+}
+
+int Character::get_mod(std::string mut, std::string arg) const
+{
+    auto &mod_data = mutation_data[mut].mods;
+    int ret = 0;
+    auto found = mod_data.find(std::make_pair(false, arg));
+    if (found != mod_data.end()) {
+        ret += found->second;
+    }
+    /* Deactivated due to inability to store active mutation state
+    if (has_active_mutation(mut)) {
+        found = mod_data.find(std::make_pair(true, arg));
+        if (found != mod_data.end()) {
+            ret += found->second;
+        }
+    } */
+    return ret;
+}
+
+void Character::apply_mods(const std::string &mut, bool add_remove)
+{
+    int sign = add_remove ? 1 : -1;
+    int str_change = get_mod(mut, "STR");
+    str_max += sign * str_change;
+    per_max += sign * get_mod(mut, "PER");
+    dex_max += sign * get_mod(mut, "DEX");
+    int_max += sign * get_mod(mut, "INT");
+
+    if( str_change != 0 ) {
+        recalc_hp();
+    }
+}
+
+void Character::mutation_effect(std::string mut)
+{
+    bool is_u = is_player();
+    bool destroy = false;
+    std::vector<body_part> bps;
+
+    if (mut == "TOUGH" || mut == "TOUGH2" || mut == "TOUGH3" || mut == "GLASSJAW" ||
+        mut == "FLIMSY" || mut == "FLIMSY2" || mut == "FLIMSY3" ||
+        mut == "MUT_TOUGH" || mut == "MUT_TOUGH2" || mut == "MUT_TOUGH3") {
+        recalc_hp();
+
+    } else if (mut == "WEBBED" || mut == "PAWS" || mut == "PAWS_LARGE" || mut == "ARM_TENTACLES" ||
+               mut == "ARM_TENTACLES_4" || mut == "ARM_TENTACLES_8") {
+        // Push off gloves
+        bps.push_back(bp_hand_l);
+        bps.push_back(bp_hand_r);
+
+    } else if (mut == "TALONS") {
+        // Destroy gloves
+        destroy = true;
+        bps.push_back(bp_hand_l);
+        bps.push_back(bp_hand_r);
+
+    } else if (mut == "BEAK" || mut == "BEAK_PECK" || mut == "BEAK_HUM" || mut == "MANDIBLES" ||
+               mut == "SABER_TEETH") {
+        // Destroy mouthwear
+        destroy = true;
+        bps.push_back(bp_mouth);
+
+    } else if (mut == "MINOTAUR" || mut == "MUZZLE" || mut == "MUZZLE_BEAR" || mut == "MUZZLE_LONG" ||
+               mut == "PROBOSCIS" || mut == "MUZZLE_RAT") {
+        // Push off mouthwear
+        bps.push_back(bp_mouth);
+
+    } else if (mut == "HOOVES" || mut == "RAP_TALONS") {
+        // Destroy footwear
+        destroy = true;
+        bps.push_back(bp_foot_l);
+        bps.push_back(bp_foot_r);
+
+    } else if (mut == "SHELL") {
+        // Destroy torsowear
+        destroy = true;
+        bps.push_back(bp_torso);
+
+    } else if ( (mut == "INSECT_ARMS") || (mut == "ARACHNID_ARMS") || (mut == "WINGS_BUTTERFLY") ) {
+        // Push off torsowear
+        bps.push_back(bp_torso);
+
+    } else if (mut == "HORNS_CURLED" || mut == "CHITIN3") {
+        // Push off all helmets
+        bps.push_back(bp_head);
+
+    } else if (mut == "HORNS_POINTED" || mut == "ANTENNAE" || mut == "ANTLERS") {
+        // Push off non-cloth helmets
+        bps.push_back(bp_head);
+
+    } else if (mut == "HUGE") {
+        // And there goes your clothing; by now you shouldn't need it anymore
+        add_msg(m_bad, _("You rip out of your clothing!"));
+        destroy = true;
+        bps.push_back(bp_torso);
+        bps.push_back(bp_leg_l);
+        bps.push_back(bp_leg_r);
+        bps.push_back(bp_arm_l);
+        bps.push_back(bp_arm_r);
+        bps.push_back(bp_hand_l);
+        bps.push_back(bp_hand_r);
+        bps.push_back(bp_head);
+        bps.push_back(bp_foot_l);
+        bps.push_back(bp_foot_r);
+
+    } else if (mut == "STR_ALPHA") {
+        if (str_max <= 6) {
+            str_max = 8;
+        } else if (str_max <= 7) {
+            str_max = 11;
+        } else if (str_max <= 14) {
+            str_max = 15;
+        } else {
+            str_max = 18;
+        }
+        recalc_hp();
+    } else if (mut == "DEX_ALPHA") {
+        if (dex_max <= 6) {
+            dex_max = 8;
+        } else if (dex_max <= 7) {
+            dex_max = 11;
+        } else if (dex_max <= 14) {
+            dex_max = 15;
+        } else {
+            dex_max = 18;
+        }
+    } else if (mut == "INT_ALPHA") {
+        if (int_max <= 6) {
+            int_max = 8;
+        } else if (int_max <= 7) {
+            int_max = 11;
+        } else if (int_max <= 14) {
+            int_max = 15;
+        } else {
+            int_max = 18;
+        }
+    } else if (mut == "INT_SLIME") {
+        int_max *= 2; // Now, can you keep it? :-)
+
+    } else if (mut == "PER_ALPHA") {
+        if (per_max <= 6) {
+            per_max = 8;
+        } else if (per_max <= 7) {
+            per_max = 11;
+        } else if (per_max <= 14) {
+            per_max = 15;
+        } else {
+            per_max = 18;
+        }
+    } else {
+        apply_mods(mut, true);
+    }
+
+    std::string mutation_safe = "OVERSIZE";
+    for (size_t i = 0; i < worn.size(); i++) {
+        for( auto &bp : bps ) {
+            if( ( worn[i].covers( bp ) ) && ( !( worn[i].has_flag( mutation_safe ) ) ) ) {
+                if (destroy) {
+                    if (is_u) {
+                        add_msg(m_bad, _("Your %s is destroyed!"), worn[i].tname().c_str());
+                    }
+
+                    worn.erase(worn.begin() + i);
+
+                } else {
+                    if (is_u) {
+                        add_msg(m_bad, _("Your %s is pushed off."), worn[i].tname().c_str());
+                    }
+
+                    int pos = player::worn_position_to_index(i);
+                    g->m.add_item_or_charges(posx(), posy(), worn[i]);
+                    i_rem(pos);
+                }
+                // Reset to the start of the vector
+                i = 0;
+            }
+        }
+    }
+}
+
+void Character::mutation_loss_effect(std::string mut)
+{
+    if (mut == "TOUGH" || mut == "TOUGH2" || mut == "TOUGH3" || mut == "GLASSJAW" ||
+        mut == "FLIMSY" || mut == "FLIMSY2" || mut == "FLIMSY3" ||
+        mut == "MUT_TOUGH" || mut == "MUT_TOUGH2" || mut == "MUT_TOUGH3") {
+        recalc_hp();
+
+    } else if (mut == "STR_ALPHA") {
+        if (str_max == 18) {
+            str_max = 15;
+        } else if (str_max == 15) {
+            str_max = 8;
+        } else if (str_max == 11) {
+            str_max = 7;
+        } else {
+            str_max = 4;
+        }
+        recalc_hp();
+    } else if (mut == "DEX_ALPHA") {
+        if (dex_max == 18) {
+            dex_max = 15;
+        } else if (dex_max == 15) {
+            dex_max = 8;
+        } else if (dex_max == 11) {
+            dex_max = 7;
+        } else {
+            dex_max = 4;
+        }
+    } else if (mut == "INT_ALPHA") {
+        if (int_max == 18) {
+            int_max = 15;
+        } else if (int_max == 15) {
+            int_max = 8;
+        } else if (int_max == 11) {
+            int_max = 7;
+        } else {
+            int_max = 4;
+        }
+    } else if (mut == "INT_SLIME") {
+        int_max /= 2; // In case you have a freak accident with the debug menu ;-)
+
+    } else if (mut == "PER_ALPHA") {
+        if (per_max == 18) {
+            per_max = 15;
+        } else if (per_max == 15) {
+            per_max = 8;
+        } else if (per_max == 11) {
+            per_max = 7;
+        } else {
+            per_max = 4;
+        }
+    } else {
+        apply_mods(mut, false);
+    }
+}
+
+bool Character::has_active_mutation(const std::string & b) const
+{
+    const auto &mut_iter = my_mutations.find( b );
+    if( mut_iter == my_mutations.end() ) {
+        return false;
+    }
+    return traits[*mut_iter].powered;
+}
 
 void player::activate_mutation( std::string mut )
 {
@@ -45,10 +344,13 @@ void player::activate_mutation( std::string mut )
             fatigue += cost;
         }
         traits[mut].powered = true;
+        
+        // Handle stat changes from activation
+	apply_mods(mut, true);
     }
 
     if( traits[mut].id == "WEB_WEAVER" ) {
-        g->m.add_field(posx, posy, fd_web, 1);
+        g->m.add_field(posx(), posy(), fd_web, 1);
         add_msg(_("You start spinning web with your spinnerets!"));
     } else if (traits[mut].id == "BURROW"){
         if (g->u.is_underwater()) {
@@ -62,7 +364,7 @@ void player::activate_mutation( std::string mut )
             return;
         }
 
-        if (dirx == g->u.posx && diry == g->u.posy) {
+        if (dirx == g->u.posx() && diry == g->u.posy()) {
             add_msg_if_player(_("You've got places to go and critters to beat."));
             add_msg_if_player(_("Let the lesser folks eat their hearts out."));
             traits[mut].powered = false;
@@ -90,8 +392,8 @@ void player::activate_mutation( std::string mut )
         return; // handled when the activity finishes
     } else if (traits[mut].id == "SLIMESPAWNER") {
         std::vector<point> valid;
-        for (int x = posx - 1; x <= posx + 1; x++) {
-            for (int y = posy - 1; y <= posy + 1; y++) {
+        for (int x = posx() - 1; x <= posx() + 1; x++) {
+            for (int y = posy() - 1; y <= posy() + 1; y++) {
                 if (g->is_empty(x, y)) {
                     valid.push_back( point(x, y) );
                 }
@@ -125,15 +427,15 @@ void player::activate_mutation( std::string mut )
         traits[mut].powered = false;
         return;
     } else if (traits[mut].id == "SHOUT1") {
-        g->sound(posx, posy, 10 + 2 * str_cur, _("You shout loudly!"));
+        sounds::sound(posx(), posy(), 10 + 2 * str_cur, _("You shout loudly!"));
         traits[mut].powered = false;
         return;
     } else if (traits[mut].id == "SHOUT2"){
-        g->sound(posx, posy, 15 + 3 * str_cur, _("You scream loudly!"));
+        sounds::sound(posx(), posy(), 15 + 3 * str_cur, _("You scream loudly!"));
         traits[mut].powered = false;
         return;
     } else if (traits[mut].id == "SHOUT3"){
-        g->sound(posx, posy, 20 + 4 * str_cur, _("You let out a piercing howl!"));
+        sounds::sound(posx(), posy(), 20 + 4 * str_cur, _("You let out a piercing howl!"));
         traits[mut].powered = false;
         return;
     } else if ((traits[mut].id == "NAUSEA") || (traits[mut].id == "VOMITOUS") ){
@@ -152,10 +454,10 @@ void player::activate_mutation( std::string mut )
         item newit("vine_30", calendar::turn, false);
         if (!can_pickVolume(newit.volume())) { //Accounts for result_mult
             add_msg(_("You detach a vine but don't have room to carry it, so you drop it."));
-            g->m.add_item_or_charges(posx, posy, newit);
+            g->m.add_item_or_charges(posx(), posy(), newit);
         } else if (!can_pickWeight(newit.weight(), !OPTIONS["DANGEROUS_PICKUPS"])) {
             add_msg(_("Your freshly-detached vine is too heavy to carry, so you drop it."));
-            g->m.add_item_or_charges(posx, posy, newit);
+            g->m.add_item_or_charges(posx(), posy(), newit);
         } else {
             inv.assign_empty_invlet(newit);
             newit = i_add(newit);
@@ -169,6 +471,9 @@ void player::activate_mutation( std::string mut )
 void player::deactivate_mutation(std::string mut)
 {
     traits[mut].powered = false;
+    
+    // Handle stat changes from deactivation
+    apply_mods(mut, false);
 }
 
 void show_mutations_titlebar(WINDOW *window, player *p, std::string menu_mode)
@@ -316,11 +621,21 @@ void player::power_mutations()
                     // TODO: track resource(s) used and specify
                     mvwputch( wBio, list_start_y + i, second_column, type,
                               trait_keys[traits[active[i]].id] );
-                    mvwprintz(wBio, list_start_y + i, second_column + 2, type,
-                              (traits[active[i]].powered ? _("%s - Active") : _("%s - %d RU / %d turns")),
-                              traits[active[i]].name.c_str(),
-                              traits[active[i]].cost,
-                              traits[active[i]].cooldown);
+                    std::stringstream mut_desc;
+                    mut_desc << traits[active[i]].name;
+                    if ( traits[active[i]].cost > 0 && traits[active[i]].cooldown > 0 ) {
+                        mut_desc << string_format( _(" - %d RU / %d turns"),
+                                      traits[active[i]].cost, traits[active[i]].cooldown );
+                    } else if ( traits[active[i]].cost > 0 ) {
+                        mut_desc << string_format( _(" - %d RU"), traits[active[i]].cost );
+                    } else if ( traits[active[i]].cooldown > 0 ) {
+                        mut_desc << string_format( _(" - %d turns"), traits[active[i]].cooldown );
+                    }
+                    if ( traits[active[i]].powered ) {
+                        mut_desc << _(" - Active");
+                    }
+                    mvwprintz( wBio, list_start_y + i, second_column + 2, type,
+                               mut_desc.str().c_str() );
                 }
             }
 
@@ -432,6 +747,7 @@ void player::power_mutations()
                         delwin(w_description);
                         delwin(wBio);
                         g->draw();
+                        add_msg( m_neutral, _("You activate your %s."), mut_data.name.c_str() );
                         activate_mutation( mut_id );
                         // Action done, leave screen
                         break;
@@ -695,10 +1011,17 @@ void player::mutate_towards(std::string mut)
         }
     }
 
-    if (!cancel.empty()) {
-        std::string removed = cancel[ rng(0, cancel.size() - 1) ];
-        remove_mutation(removed);
-        return;
+    for (size_t i = 0; i < cancel.size(); i++) {
+        if (!cancel.empty()) {
+            std::string removed = cancel[i];
+            remove_mutation(removed);
+            cancel.erase(cancel.begin() + i);
+            i--;
+            // This checks for cases where one trait knocks out several others
+            // Probably a better way, but gets it Fixed Now--KA101
+            mutate_towards(mut);
+            return;
+        }
     }
 
     for (size_t i = 0; (!prereq1) && i < prereq.size(); i++) {
@@ -811,8 +1134,8 @@ void player::mutate_towards(std::string mut)
                          pgettext("memorial_female", "'%s' mutation turned into '%s'"),
                          traits[replacing].name.c_str(), traits[mut].name.c_str());
         toggle_mutation(replacing);
-        mutation_loss_effect(*this, replacing);
-        mutation_effect(*this, mut);
+        mutation_loss_effect(replacing);
+        mutation_effect(mut);
         mutation_replaced = true;
     }
     if (replacing2 != "") {
@@ -831,8 +1154,8 @@ void player::mutate_towards(std::string mut)
                          pgettext("memorial_female", "'%s' mutation turned into '%s'"),
                          traits[replacing2].name.c_str(), traits[mut].name.c_str());
         toggle_mutation(replacing2);
-        mutation_loss_effect(*this, replacing2);
-        mutation_effect(*this, mut);
+        mutation_loss_effect(replacing2);
+        mutation_effect(mut);
         mutation_replaced = true;
     }
     for (size_t i = 0; i < canceltrait.size(); i++) {
@@ -854,8 +1177,8 @@ void player::mutate_towards(std::string mut)
                         pgettext("memorial_female", "'%s' mutation turned into '%s'"),
                         traits[canceltrait[i]].name.c_str(), traits[mut].name.c_str());
         toggle_mutation(canceltrait[i]);
-        mutation_loss_effect(*this, canceltrait[i]);
-        mutation_effect(*this, mut);
+        mutation_loss_effect(canceltrait[i]);
+        mutation_effect(mut);
         mutation_replaced = true;
     }
     if (!mutation_replaced) {
@@ -872,7 +1195,7 @@ void player::mutate_towards(std::string mut)
         add_memorial_log(pgettext("memorial_male", "Gained the mutation '%s'."),
                          pgettext("memorial_female", "Gained the mutation '%s'."),
                          traits[mut].name.c_str());
-        mutation_effect(*this, mut);
+        mutation_effect(mut);
     }
 
     set_highest_cat_level();
@@ -881,23 +1204,6 @@ void player::mutate_towards(std::string mut)
 
 void player::remove_mutation(std::string mut)
 {
-    // Check for dependant mutations first
-    std::vector<std::string> dependant;
-
-    for( auto &traits_iter : traits ) {
-        for( size_t i = 0; i < mutation_data[traits_iter.first].prereqs.size(); i++ ) {
-            if( mutation_data[traits_iter.first].prereqs[i] == traits_iter.first ) {
-                dependant.push_back( traits_iter.first );
-                break;
-            }
-        }
-    }
-
-    if (!dependant.empty()) {
-        remove_mutation(dependant[rng(0, dependant.size() - 1)]);
-        return;
-    }
-
     // Check if there's a prereq we should shrink back into
     std::string replacing = "";
     std::vector<std::string> originals = mutation_data[mut].prereqs;
@@ -982,8 +1288,8 @@ void player::remove_mutation(std::string mut)
         add_msg(rating, _("Your %1$s mutation turns into %2$s."), traits[mut].name.c_str(),
                 traits[replacing].name.c_str());
         toggle_mutation(replacing);
-        mutation_loss_effect(*this, mut);
-        mutation_effect(*this, replacing);
+        mutation_loss_effect(mut);
+        mutation_effect(replacing);
         mutation_replaced = true;
     }
     if (replacing2 != "") {
@@ -999,8 +1305,8 @@ void player::remove_mutation(std::string mut)
         add_msg(rating, _("Your %1$s mutation turns into %2$s."), traits[mut].name.c_str(),
                 traits[replacing2].name.c_str());
         toggle_mutation(replacing2);
-        mutation_loss_effect(*this, mut);
-        mutation_effect(*this, replacing2);
+        mutation_loss_effect(mut);
+        mutation_effect(replacing2);
         mutation_replaced = true;
     }
     if(!mutation_replaced) {
@@ -1014,7 +1320,7 @@ void player::remove_mutation(std::string mut)
             rating = m_neutral;
         }
         add_msg(rating, _("You lose your %s mutation."), traits[mut].name.c_str());
-        mutation_loss_effect(*this, mut);
+        mutation_loss_effect(mut);
     }
 
     set_highest_cat_level();
@@ -1043,405 +1349,5 @@ void player::remove_child_flag(std::string flag)
             remove_child_flag(tmp);
             return;
         }
-    }
-}
-
-void mutation_effect(player &p, std::string mut)
-{
-    bool is_u = (&p == &(g->u));
-    bool destroy = false;
-    std::vector<body_part> bps;
-
-    if (mut == "TOUGH" || mut == "TOUGH2" || mut == "TOUGH3" || mut == "GLASSJAW" ||
-        mut == "FLIMSY" || mut == "FLIMSY2" || mut == "FLIMSY3" ||
-        mut == "MUT_TOUGH" || mut == "MUT_TOUGH2" || mut == "MUT_TOUGH3") {
-        p.recalc_hp();
-
-    } else if (mut == "WEBBED" || mut == "PAWS" || mut == "PAWS_LARGE" || mut == "ARM_TENTACLES" ||
-               mut == "ARM_TENTACLES_4" || mut == "ARM_TENTACLES_8") {
-        // Push off gloves
-        bps.push_back(bp_hand_l);
-        bps.push_back(bp_hand_r);
-
-    } else if (mut == "TALONS") {
-        // Destroy gloves
-        destroy = true;
-        bps.push_back(bp_hand_l);
-        bps.push_back(bp_hand_r);
-
-    } else if (mut == "BEAK" || mut == "BEAK_PECK" || mut == "BEAK_HUM" || mut == "MANDIBLES" ||
-               mut == "SABER_TEETH") {
-        // Destroy mouthwear
-        destroy = true;
-        bps.push_back(bp_mouth);
-
-    } else if (mut == "MINOTAUR" || mut == "MUZZLE" || mut == "MUZZLE_BEAR" || mut == "MUZZLE_LONG" ||
-               mut == "PROBOSCIS" || mut == "MUZZLE_RAT") {
-        // Push off mouthwear
-        bps.push_back(bp_mouth);
-
-    } else if (mut == "HOOVES" || mut == "RAP_TALONS") {
-        // Destroy footwear
-        destroy = true;
-        bps.push_back(bp_foot_l);
-        bps.push_back(bp_foot_r);
-
-    } else if (mut == "SHELL") {
-        // Destroy torsowear
-        destroy = true;
-        bps.push_back(bp_torso);
-
-    } else if ( (mut == "INSECT_ARMS") || (mut == "ARACHNID_ARMS") || (mut == "WINGS_BUTTERFLY") ) {
-        // Push off torsowear
-        bps.push_back(bp_torso);
-
-    } else if (mut == "HORNS_CURLED" || mut == "CHITIN3") {
-        // Push off all helmets
-        bps.push_back(bp_head);
-
-    } else if (mut == "HORNS_POINTED" || mut == "ANTENNAE" || mut == "ANTLERS") {
-        // Push off non-cloth helmets
-        bps.push_back(bp_head);
-
-    } else if (mut == "LARGE" || mut == "LARGE_OK") {
-        p.str_max += 2;
-        p.recalc_hp();
-
-    } else if (mut == "HUGE") {
-        p.str_max += 4;
-        // Bad-Huge gets less HP bonus than normal, this is handled in recalc_hp()
-        p.recalc_hp();
-        // And there goes your clothing; by now you shouldn't need it anymore
-        add_msg(m_bad, _("You rip out of your clothing!"));
-        destroy = true;
-        bps.push_back(bp_torso);
-        bps.push_back(bp_leg_l);
-        bps.push_back(bp_leg_r);
-        bps.push_back(bp_arm_l);
-        bps.push_back(bp_arm_r);
-        bps.push_back(bp_hand_l);
-        bps.push_back(bp_hand_r);
-        bps.push_back(bp_head);
-        bps.push_back(bp_foot_l);
-        bps.push_back(bp_foot_r);
-
-    }  else if (mut == "HUGE_OK") {
-        p.str_max += 4;
-        p.recalc_hp();
-        // Good-Huge still can't fit places but its heart's healthy enough for
-        // going around being Huge, so you get the HP
-
-    } else if (mut == "STOCKY_TROGLO") {
-        p.dex_max -= 2;
-        p.str_max += 2;
-        p.recalc_hp();
-
-    } else if (mut == "PRED3") {
-        // Not so much "better at learning combat skills"
-        // as "brain changes to focus on their development".
-        // We are talking post-humanity here.
-        p.int_max --;
-
-    } else if (mut == "PRED4") {
-        // Might be a bit harsh, but on the other claw
-        // we are talking folks who really wanted to
-        // transcend their humanity by this point.
-        p.int_max -= 3;
-
-    } else if (mut == "STR_UP") {
-        p.str_max ++;
-        p.recalc_hp();
-
-    } else if (mut == "STR_UP_2") {
-        p.str_max += 2;
-        p.recalc_hp();
-
-    } else if (mut == "STR_UP_3") {
-        p.str_max += 4;
-        p.recalc_hp();
-
-    } else if (mut == "STR_UP_4") {
-        p.str_max += 7;
-        p.recalc_hp();
-
-    } else if (mut == "STR_ALPHA") {
-        if (p.str_max <= 6) {
-            p.str_max = 8;
-        } else if (p.str_max <= 7) {
-            p.str_max = 11;
-        } else if (p.str_max <= 14) {
-            p.str_max = 15;
-        } else {
-            p.str_max = 18;
-        }
-        p.recalc_hp();
-    } else if (mut == "DEX_UP") {
-        p.dex_max ++;
-
-    } else if (mut == "BENDY1") {
-        p.dex_max ++;
-
-    } else if (mut == "BENDY2") {
-        p.dex_max += 3;
-        p.str_max -= 2;
-        p.recalc_hp();
-
-    } else if (mut == "BENDY3") {
-        p.dex_max += 4;
-        p.str_max -= 4;
-        p.recalc_hp();
-
-    } else if (mut == "DEX_UP_2") {
-        p.dex_max += 2;
-
-    } else if (mut == "DEX_UP_3") {
-        p.dex_max += 4;
-
-    } else if (mut == "DEX_UP_4") {
-        p.dex_max += 7;
-
-    } else if (mut == "DEX_ALPHA") {
-        if (p.dex_max <= 6) {
-            p.dex_max = 8;
-        } else if (p.dex_max <= 7) {
-            p.dex_max = 11;
-        } else if (p.dex_max <= 14) {
-            p.dex_max = 15;
-        } else {
-            p.dex_max = 18;
-        }
-    } else if (mut == "INT_UP") {
-        p.int_max ++;
-
-    } else if (mut == "INT_UP_2") {
-        p.int_max += 2;
-
-    } else if (mut == "INT_UP_3") {
-        p.int_max += 4;
-
-    } else if (mut == "INT_UP_4") {
-        p.int_max += 7;
-
-    } else if (mut == "INT_ALPHA") {
-        if (p.int_max <= 6) {
-            p.int_max = 8;
-        } else if (p.int_max <= 7) {
-            p.int_max = 11;
-        } else if (p.int_max <= 14) {
-            p.int_max = 15;
-        } else {
-            p.int_max = 18;
-        }
-    } else if (mut == "INT_SLIME") {
-        p.int_max *= 2; // Now, can you keep it? :-)
-
-    } else if (mut == "PER_UP") {
-        p.per_max ++;
-
-    } else if (mut == "PER_UP_2") {
-        p.per_max += 2;
-
-    } else if (mut == "PER_UP_3") {
-        p.per_max += 4;
-
-    } else if (mut == "PER_UP_4") {
-        p.per_max += 7;
-
-    } else if (mut == "PER_ALPHA") {
-        if (p.per_max <= 6) {
-            p.per_max = 8;
-        } else if (p.per_max <= 7) {
-            p.per_max = 11;
-        } else if (p.per_max <= 14) {
-            p.per_max = 15;
-        } else {
-            p.per_max = 18;
-        }
-    } else if (mut == "PER_SLIME") {
-        p.per_max -= 8;
-        if (p.per_max <= 0) {
-            p.per_max = 1;
-        }
-
-    } else if (mut == "PER_SLIME_OK") {
-        p.per_max += 5;
-    }
-
-    std::string mutation_safe = "OVERSIZE";
-    for (size_t i = 0; i < p.worn.size(); i++) {
-        for( auto &bp : bps ) {
-            if( ( p.worn[i].covers( bp ) ) && ( !( p.worn[i].has_flag( mutation_safe ) ) ) ) {
-                if (destroy) {
-                    if (is_u) {
-                        add_msg(m_bad, _("Your %s is destroyed!"), p.worn[i].tname().c_str());
-                    }
-
-                    p.worn.erase(p.worn.begin() + i);
-
-                } else {
-                    if (is_u) {
-                        add_msg(m_bad, _("Your %s is pushed off."), p.worn[i].tname().c_str());
-                    }
-
-                    int pos = player::worn_position_to_index(i);
-                    g->m.add_item_or_charges(p.posx, p.posy, p.worn[i]);
-                    p.i_rem(pos);
-                }
-                // Reset to the start of the vector
-                i = 0;
-            }
-        }
-    }
-}
-
-void mutation_loss_effect(player &p, std::string mut)
-{
-    if (mut == "TOUGH" || mut == "TOUGH2" || mut == "TOUGH3" || mut == "GLASSJAW" ||
-        mut == "FLIMSY" || mut == "FLIMSY2" || mut == "FLIMSY3" ||
-        mut == "MUT_TOUGH" || mut == "MUT_TOUGH2" || mut == "MUT_TOUGH3") {
-        p.recalc_hp();
-
-    } else if (mut == "LARGE" || mut == "LARGE_OK") {
-        p.str_max -= 2;
-        p.recalc_hp();
-
-    } else if (mut == "HUGE") {
-        p.str_max -= 4;
-        p.recalc_hp();
-        // Losing Huge probably means either gaining Good-Huge or
-        // going back to Large.  In any case, recalc_hp ought to
-        // handle it.
-
-    } else if (mut == "HUGE_OK") {
-        p.str_max -= 4;
-        p.recalc_hp();
-
-    } else if (mut == "STOCKY_TROGLO") {
-        p.dex_max += 2;
-        p.str_max -= 2;
-        p.recalc_hp();
-
-    } else if (mut == "PRED3") {
-        // Mostly for the Debug.
-        p.int_max ++;
-
-    } else if (mut == "PRED4") {
-        p.int_max += 3;
-
-    } else if (mut == "STR_UP") {
-        p.str_max --;
-        p.recalc_hp();
-
-    } else if (mut == "STR_UP_2") {
-        p.str_max -= 2;
-        p.recalc_hp();
-
-    } else if (mut == "STR_UP_3") {
-        p.str_max -= 4;
-        p.recalc_hp();
-
-    } else if (mut == "STR_UP_4") {
-        p.str_max -= 7;
-        p.recalc_hp();
-
-    } else if (mut == "STR_ALPHA") {
-        if (p.str_max == 18) {
-            p.str_max = 15;
-        } else if (p.str_max == 15) {
-            p.str_max = 8;
-        } else if (p.str_max == 11) {
-            p.str_max = 7;
-        } else {
-            p.str_max = 4;
-        }
-        p.recalc_hp();
-    } else if (mut == "DEX_UP") {
-        p.dex_max --;
-
-    } else if (mut == "BENDY1") {
-        p.dex_max --;
-
-    } else if (mut == "BENDY2") {
-        p.dex_max -= 3;
-        p.str_max += 2;
-        p.recalc_hp();
-
-    } else if (mut == "BENDY3") {
-        p.dex_max -= 4;
-        p.str_max += 4;
-        p.recalc_hp();
-
-    } else if (mut == "DEX_UP_2") {
-        p.dex_max -= 2;
-
-    } else if (mut == "DEX_UP_3") {
-        p.dex_max -= 4;
-
-    } else if (mut == "DEX_UP_4") {
-        p.dex_max -= 7;
-
-    } else if (mut == "DEX_ALPHA") {
-        if (p.dex_max == 18) {
-            p.dex_max = 15;
-        } else if (p.dex_max == 15) {
-            p.dex_max = 8;
-        } else if (p.dex_max == 11) {
-            p.dex_max = 7;
-        } else {
-            p.dex_max = 4;
-        }
-    } else if (mut == "INT_UP") {
-        p.int_max --;
-
-    } else if (mut == "INT_UP_2") {
-        p.int_max -= 2;
-
-    } else if (mut == "INT_UP_3") {
-        p.int_max -= 4;
-
-    } else if (mut == "INT_UP_4") {
-        p.int_max -= 7;
-
-    } else if (mut == "INT_ALPHA") {
-        if (p.int_max == 18) {
-            p.int_max = 15;
-        } else if (p.int_max == 15) {
-            p.int_max = 8;
-        } else if (p.int_max == 11) {
-            p.int_max = 7;
-        } else {
-            p.int_max = 4;
-        }
-    } else if (mut == "INT_SLIME") {
-        p.int_max /= 2; // In case you have a freak accident with the debug menu ;-)
-
-    } else if (mut == "PER_UP") {
-        p.per_max --;
-
-    } else if (mut == "PER_UP_2") {
-        p.per_max -= 2;
-
-    } else if (mut == "PER_UP_3") {
-        p.per_max -= 4;
-
-    } else if (mut == "PER_UP_4") {
-        p.per_max -= 7;
-
-    } else if (mut == "PER_ALPHA") {
-        if (p.per_max == 18) {
-            p.per_max = 15;
-        } else if (p.per_max == 15) {
-            p.per_max = 8;
-        } else if (p.per_max == 11) {
-            p.per_max = 7;
-        } else {
-            p.per_max = 4;
-        }
-    } else if (mut == "PER_SLIME") {
-        p.per_max += 8;
-
-    } else if (mut == "PER_SLIME_OK") {
-        p.per_max -= 5;
-
     }
 }

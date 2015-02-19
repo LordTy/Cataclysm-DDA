@@ -15,6 +15,8 @@
 #include "overmapbuffer.h"
 #include "messages.h"
 #include "json.h"
+#include "sounds.h"
+
 #include <algorithm>
 #include <string>
 
@@ -26,8 +28,8 @@ npc::npc()
  mapx = 0;
  mapy = 0;
  mapz = 0;
- posx = -1;
- posy = -1;
+ position.x = -1;
+ position.y = -1;
  wandx = 0;
  wandy = 0;
  wandf = 0;
@@ -860,8 +862,8 @@ void npc::spawn_at(int x, int y, int z)
     mapx = x;
     mapy = y;
     mapz = z;
-    posx = rng(0, SEEX - 1);
-    posy = rng(0, SEEY - 1);
+    position.x = rng(0, SEEX - 1);
+    position.y = rng(0, SEEY - 1);
     const point pos_om = overmapbuffer::sm_to_om_copy( mapx, mapy );
     overmap &om = overmap_buffer.get( pos_om.x, pos_om.y );
     om.npcs.push_back(this);
@@ -900,13 +902,13 @@ tripoint npc::global_omt_location() const
 
 tripoint npc::global_square_location() const
 {
-    return tripoint( mapx * SEEX + posx, mapy * SEEY + posy, mapz );
+    return tripoint( mapx * SEEX + posx(), mapy * SEEY + posy(), mapz );
 }
 
 void npc::place_on_map()
 {
     // The global absolute position (in map squares) of the npc is *always*
-    // "mapx * SEEX + posx" (analog for y).
+    // "mapx * SEEX + posx()" (analog for y).
     // The main map assumes that pos[xy] is in its own (local to the main map)
     // coordinate system. We have to change pos[xy] to match that assumption,
     // but also have to change map[xy] to keep the global position of the npc
@@ -915,13 +917,14 @@ void npc::place_on_map()
     const int dmy = mapy - g->get_abs_levy();
     mapx -= dmx; // == g->get_abs_levx()
     mapy -= dmy;
-    posx += dmx * SEEX; // value of "mapx * SEEX + posx" is unchanged
-    posy += dmy * SEEY;
+    position.x += dmx * SEEX; // value of "mapx * SEEX + posx()" is unchanged
+    position.y += dmy * SEEY;
 
-    //places the npc at the nearest empty spot near (posx, posy). Searches in a spiral pattern for a suitable location.
+    // Places the npc at the nearest empty spot near (posx(), posy()).
+    // Searches in a spiral pattern for a suitable location.
     int x = 0, y = 0, dx = 0, dy = -1;
     int temp;
-    while(!g->is_empty(posx + x, posy + y))
+    while(!g->is_empty(posx() + x, posy() + y))
     {
         if ((x == y) || ((x < 0) && (x == -y)) || ((x > 0) && (x == 1-y)))
         {//change direction
@@ -931,10 +934,10 @@ void npc::place_on_map()
         }
         x += dx;
         y += dy;
-    }//end search, posx + x , posy + y contains a free spot.
+    }//end search, posx() + x , posy() + y contains a free spot.
     //place the npc at the free spot.
-    posx += x;
-    posy += y;
+    position.x += x;
+    position.y += y;
 }
 
 const Skill* npc::best_skill()
@@ -1049,7 +1052,7 @@ bool npc::wield(item* it)
             i_add( remove_weapon() );
             moves -= 15;
         } else { // No room for weapon, so we drop it
-            g->m.add_item_or_charges( posx, posy, remove_weapon() );
+            g->m.add_item_or_charges( posx(), posy(), remove_weapon() );
         }
     }
     moves -= 15;
@@ -1271,7 +1274,8 @@ int npc::player_danger(player *u) const
 
 int npc::vehicle_danger(int radius) const
 {
-    VehicleList vehicles = g->m.get_vehicles(posx - radius, posy - radius, posx + radius, posy + radius);
+    VehicleList vehicles = g->m.get_vehicles(posx() - radius, posy() - radius,
+                                             posx() + radius, posy() + radius);
 
  int danger = 0;
 
@@ -1294,7 +1298,7 @@ int npc::vehicle_danger(int radius) const
    int size = std::max(last_part.mount.x, last_part.mount.y);
 
    float normal = sqrt((float)((bx - ax) * (bx - ax) + (by - ay) * (by - ay)));
-   int closest = abs((posx - ax) * (by - ay) - (posy - ay) * (bx - ax)) / normal;
+   int closest = abs((posx() - ax) * (by - ay) - (posy() - ay) * (bx - ax)) / normal;
 
    if (size > closest)
     danger = i;
@@ -1471,18 +1475,18 @@ void npc::decide_needs()
 
 void npc::say(std::string line, ...) const
 {
- va_list ap;
- va_start(ap, line);
- line = vstring_format(line, ap);
- va_end(ap);
- parse_tags(line, &(g->u), this);
- if (g->u.sees( *this )) {
-  add_msg(_("%1$s says: \"%2$s\""), name.c_str(), line.c_str());
-  g->sound(posx, posy, 16, "");
- } else {
-  std::string sound = string_format(_("%1$s saying \"%2$s\""), name.c_str(), line.c_str());
-  g->sound(posx, posy, 16, sound);
- }
+    va_list ap;
+    va_start(ap, line);
+    line = vstring_format(line, ap);
+    va_end(ap);
+    parse_tags(line, &(g->u), this);
+    if (g->u.sees( *this )) {
+        add_msg(_("%1$s says: \"%2$s\""), name.c_str(), line.c_str());
+        sounds::sound(posx(), posy(), 16, "");
+    } else {
+        std::string sound = string_format(_("%1$s saying \"%2$s\""), name.c_str(), line.c_str());
+        sounds::sound(posx(), posy(), 16, sound);
+    }
 }
 
 void npc::init_selling(std::vector<item*> &items, std::vector<int> &prices)
@@ -1855,6 +1859,8 @@ nc_color npc::basic_symbol_color() const
 {
     if( attitude == NPCATT_KILL ) {
         return c_red;
+    } else if( attitude == NPCATT_FLEE ) {
+        return c_red;
     } else if( is_friend() ) {
         return c_green;
     } else if( is_following() ) {
@@ -1866,15 +1872,14 @@ nc_color npc::basic_symbol_color() const
 int npc::print_info(WINDOW* w, int line, int vLines, int column) const
 {
     const int last_line = line + vLines;
+    const size_t iWidth = getmaxx(w) - 2;
     // First line of w is the border; the next 4 are terrain info, and after that
     // is a blank line. w is 13 characters tall, and we can't use the last one
     // because it's a border as well; so we have lines 6 through 11.
     // w is also 48 characters wide - 2 characters for border = 46 characters for us
     mvwprintz(w, line++, column, c_white, _("NPC: %s"), name.c_str());
-    if (weapon.type->id == "null") {
-        mvwprintz(w, line++, column, c_red, _("Wielding %s"), weapon.tname().c_str());
-    } else {
-        mvwprintz(w, line++, column, c_red, _("Wielding a %s"), weapon.tname().c_str());
+    if( !weapon.is_null() ) {
+        trim_and_print(w, line++, column, iWidth, c_red, _("Wielding a %s"), weapon.tname().c_str());
     }
     std::string wearing;
     std::stringstream wstr;
@@ -1888,11 +1893,11 @@ int npc::print_info(WINDOW* w, int line, int vLines, int column) const
         }
         wstr << i.tname();
     }
-    wearing = wstr.str();
+    wearing = remove_color_tags( wstr.str() );
     size_t split;
     do {
-        split = (wearing.length() <= 46) ? std::string::npos :
-                                     wearing.find_last_of(' ', 46);
+        split = (wearing.length() <= iWidth) ? std::string::npos :
+                                     wearing.find_last_of(' ', iWidth);
         if (split == std::string::npos) {
             mvwprintz(w, line, column, c_blue, wearing.c_str());
         } else {
@@ -1908,7 +1913,10 @@ int npc::print_info(WINDOW* w, int line, int vLines, int column) const
 std::string npc::short_description() const
 {
     std::stringstream ret;
-    ret << _("Wielding: ") << weapon.tname() << ";   " << _("Wearing: ");
+    if( !weapon.is_null() ) {
+        ret << _("Wielding: ") << weapon.tname() << ";   ";
+    }
+    ret << _("Wearing: ");
     bool first = true;
     for (auto &i : worn) {
         if (!first) {
@@ -1998,8 +2006,8 @@ std::string npc::opinion_text() const
 
 void npc::shift(int sx, int sy)
 {
-    posx -= sx * SEEX;
-    posy -= sy * SEEY;
+    position.x -= sx * SEEX;
+    position.y -= sy * SEEY;
     const point pos_om_old = overmapbuffer::sm_to_om_copy( mapx, mapy );
     mapx += sx;
     mapy += sy;
@@ -2036,11 +2044,9 @@ void npc::die(Creature* nkiller) {
         return;
     }
     dead = true;
-    if( nkiller != NULL && !nkiller->is_fake() ) {
-        killer = nkiller;
-    }
+    set_killer( nkiller );
     if (in_vehicle) {
-        g->m.unboard_vehicle(posx, posy);
+        g->m.unboard_vehicle(posx(), posy());
     }
 
     if (g->u.sees( *this )) {
@@ -2247,7 +2253,7 @@ void npc::add_msg_if_npc(const char *msg, ...) const
     add_msg(processed_npc_string.c_str());
 
     va_end(ap);
-};
+}
 void npc::add_msg_player_or_npc(const char *, const char* npc_str, ...) const
 {
     va_list ap;
@@ -2261,7 +2267,7 @@ void npc::add_msg_player_or_npc(const char *, const char* npc_str, ...) const
     }
 
     va_end(ap);
-};
+}
 void npc::add_msg_if_npc(game_message_type type, const char *msg, ...) const
 {
     va_list ap;
@@ -2271,7 +2277,7 @@ void npc::add_msg_if_npc(game_message_type type, const char *msg, ...) const
     add_msg(type, processed_npc_string.c_str());
 
     va_end(ap);
-};
+}
 void npc::add_msg_player_or_npc(game_message_type type, const char *, const char* npc_str, ...) const
 {
     va_list ap;
@@ -2285,7 +2291,7 @@ void npc::add_msg_player_or_npc(game_message_type type, const char *, const char
     }
 
     va_end(ap);
-};
+}
 
 
 const tripoint npc::no_goal_point(INT_MIN, INT_MIN, INT_MIN);

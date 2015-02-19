@@ -14,6 +14,7 @@
 #include "bodypart.h"
 
 class game;
+class Character;
 class player;
 class npc;
 struct itype;
@@ -89,8 +90,47 @@ class item : public JsonSerializer, public JsonDeserializer
 public:
  item();
  item(const std::string new_type, unsigned int turn, bool rand = true, handedness handed = NONE);
- void make_corpse(const std::string new_type, mtype* mt, unsigned int turn);
- void make_corpse(const std::string new_type, mtype* mt, unsigned int turn, const std::string &name);
+
+        /**
+         * Make this a corpse of the given monster type.
+         * The monster type must not be null, alternatively the monster type id must be a valid
+         * monster type (see @ref MonsterGenerator::get_mtype).
+         *
+         * The turn parameter sets the birthday of the corpse, in other words: the turn when the
+         * monster died. Because corpses are removed from the map when they reach a certain age,
+         * one has to be careful when placing corpses with a birthday of 0. They might be
+         * removed immediately when the map is loaded without been seen by the player.
+         *
+         * The name parameter can be used to give the corpse item a name. This is
+         * used instead of the monster type name ("corpse of X" instead of "corpse of bear").
+         *
+         * Without any parameters it makes a human corpse, created at the current turn.
+         */
+        /*@{*/
+        void make_corpse( mtype* mt, unsigned int turn );
+        void make_corpse( mtype* mt, unsigned int turn, const std::string &name );
+        void make_corpse( const std::string &mtype_id, unsigned int turn );
+        void make_corpse();
+        /*@}*/
+        /**
+         * @return The monster type associated with this item (@ref corpse). It is usually the
+         * type that this item is made of (e.g. corpse, meat or blood of the monster).
+         * May return a null-pointer.
+         */
+        mtype *get_mtype() const;
+        /**
+         * Sets the monster type associated with this item (@ref corpse). You must not pass a
+         * null pointer.
+         * TODO: change this to take a reference instead.
+         */
+        void set_mtype( mtype *corpse );
+        /**
+         * Whether this is a corpse item. Corpses always have valid monster type (@ref corpse)
+         * associated (@ref get_mtype return a non-null pointer) and have been created
+         * with @ref make_corpse.
+         */
+        bool is_corpse() const;
+
  item(std::string itemdata);
  item(JsonObject &jo);
         item(item &&) = default;
@@ -434,7 +474,6 @@ public:
  bool is_food_container(player const*u) const;  // Ditto
  bool is_food() const;                // Ignoring the ability to eat batteries, etc.
  bool is_food_container() const;      // Ignoring the ability to eat batteries, etc.
- bool is_corpse() const;
  bool is_ammo_container() const;
  bool is_drink() const;
  bool is_weap() const;
@@ -454,8 +493,10 @@ public:
  bool is_container_empty() const;
  bool is_container_full() const;
  bool is_funnel_container(int &bigger_than) const;
+ bool is_emissive() const; //! whether the item emits light
 
  bool is_tool() const;
+ bool is_tool_reversible() const;
  bool is_software() const;
  bool is_var_veh_part() const;
  bool is_artifact() const;
@@ -490,7 +531,6 @@ public:
 
  itype_id typeId() const;
  itype* type;
- mtype*   corpse;
  std::vector<item> contents;
 
         /**
@@ -552,7 +592,7 @@ public:
          * and is called from there. This is not called when the item is added to the inventory
          * from worn vector or weapon slot. The item is considered already carried.
          */
-        void on_pickup( player &p );
+        void on_pickup( Character &p );
         /**
          * Name of the item type (not the item), with proper plural.
          * This is only special when the item itself has a special name ("name" entry in
@@ -874,6 +914,8 @@ public:
         std::bitset<num_bp> covered_bodyparts;
         itype* curammo;
         std::map<std::string, std::string> item_vars;
+        // TODO: make a pointer to const
+        mtype* corpse;
 public:
  char invlet;             // Inventory letter
  long charges;
@@ -895,8 +937,6 @@ public:
  int player_id; // Only give a mission to the right player!
  typedef std::vector<item> t_item_vector;
  t_item_vector components;
-
- item clone(bool rand = true);
 
  int add_ammo_to_quiver(player *u, bool isAutoPickup);
  int max_charges_from_flag(std::string flagName);
@@ -933,19 +973,18 @@ class map_item_stack
                 ~item_group() {};
         };
     public:
-        item example; //an example item for showing stats, etc.
+        item *example; //an example item for showing stats, etc.
         std::vector<item_group> vIG;
         int totalcount;
 
         //only expected to be used for things like lists and vectors
         map_item_stack()
         {
-            example = item();
             vIG.push_back(item_group());
             totalcount = 0;
         }
 
-        map_item_stack(const item it, const int arg_x, const int arg_y)
+        map_item_stack(item *it, const int arg_x, const int arg_y)
         {
             example = it;
             vIG.push_back(item_group(arg_x, arg_y, 1));
@@ -967,6 +1006,11 @@ class map_item_stack
                 vIG[iVGsize - 1].count++;
             }
             totalcount++;
+        }
+
+        static bool map_item_stack_sort(const map_item_stack &lhs, const map_item_stack &rhs)
+        {
+            return lhs.example->get_category().sort_rank < rhs.example->get_category().sort_rank;
         }
 };
 

@@ -60,6 +60,37 @@ const Skill* random_skill();
 
 void save_template(player *u);
 
+void Character::pick_name()
+{
+    name = Name::generate(male);
+}
+
+matype_id choose_ma_style( const character_type type, const std::vector<matype_id> &styles )
+{
+    if( type == PLTYPE_NOW ) {
+        return styles[rng( 0, styles.size() - 1 )];
+    }
+    if( styles.size() == 1 ) {
+        return styles.front();
+    }
+    uimenu menu;
+    menu.text = _( "Pick your style:" );
+    for( auto & s : styles ) {
+        auto &style = martialarts[s];
+        menu.addentry( style.name );
+    }
+    menu.selected = 0;
+    while( true ) {
+        menu.query();
+        auto &selected = styles[menu.ret];
+        auto &style = martialarts[selected];
+        popup( style.description, PF_NONE );
+        if( query_yn( _( "Use this style?" ) ) ) {
+            return selected;
+        }
+    }
+}
+
 int player::create(character_type type, std::string tempname)
 {
     weapon = item("null", 0);
@@ -325,123 +356,6 @@ int player::create(character_type type, std::string tempname)
         scent = 300;
     }
 
-    if (has_trait("MARTIAL_ARTS")) {
-        matype_id ma_type;
-        do {
-            int choice = (PLTYPE_NOW == type) ? rng(1, 5) :
-                         menu(false, _("Pick your style:"), _("Karate"), _("Judo"), _("Aikido"),
-                              _("Tai Chi"), _("Taekwondo"), NULL);
-            if (choice == 1) {
-                ma_type = "style_karate";
-            } else if (choice == 2) {
-                ma_type = "style_judo";
-            } else if (choice == 3) {
-                ma_type = "style_aikido";
-            } else if (choice == 4) {
-                ma_type = "style_tai_chi";
-            } else { // choice == 5
-                ma_type = "style_taekwondo";
-            }
-            if (PLTYPE_NOW != type) {
-                popup(martialarts[ma_type].description, PF_NONE);
-            }
-        } while (PLTYPE_NOW != type && !query_yn(_("Use this style?")));
-        ma_styles.push_back(ma_type);
-        style_selected = ma_type;
-    }
-    if (has_trait("MARTIAL_ARTS2")) {
-        matype_id ma_type;
-        do {
-            int choice = (PLTYPE_NOW == type) ? rng(1, 5) :
-                         menu(false, _("Pick your style:"), _("Krav Maga"), _("Muay Thai"),
-                              _("Ninjutsu"), _("Capoeira"), _("Zui Quan"), NULL);
-            if (choice == 1) {
-                ma_type = "style_krav_maga";
-            } else if (choice == 2) {
-                ma_type = "style_muay_thai";
-            } else if (choice == 3) {
-                ma_type = "style_ninjutsu";
-            } else if (choice == 4) {
-                ma_type = "style_capoeira";
-            } else { // choice == 5
-                ma_type = "style_zui_quan";
-            }
-            if (PLTYPE_NOW != type) {
-                popup(martialarts[ma_type].description, PF_NONE);
-            }
-        } while (PLTYPE_NOW != type && !query_yn(_("Use this style?")));
-        ma_styles.push_back(ma_type);
-        style_selected = ma_type;
-    }
-    if (has_trait("MARTIAL_ARTS3")) {
-        matype_id ma_type;
-        do {
-            int choice = (PLTYPE_NOW == type) ? rng(1, 5) :
-                         menu(false, _("Pick your style:"), _("Tiger"), _("Crane"), _("Leopard"),
-                              _("Snake"), _("Dragon"), NULL);
-            if (choice == 1) {
-                ma_type = "style_tiger";
-            } else if (choice == 2) {
-                ma_type = "style_crane";
-            } else if (choice == 3) {
-                ma_type = "style_leopard";
-            } else if (choice == 4) {
-                ma_type = "style_snake";
-            } else { // choice == 5
-                ma_type = "style_dragon";
-            }
-            if (PLTYPE_NOW != type) {
-                popup(martialarts[ma_type].description, PF_NONE);
-            }
-        } while (PLTYPE_NOW != type && !query_yn(_("Use this style?")));
-        ma_styles.push_back(ma_type);
-        style_selected = ma_type;
-    }
-    if (has_trait("MARTIAL_ARTS4")) {
-        matype_id ma_type;
-        do {
-            int choice = (PLTYPE_NOW == type) ? rng(1, 5) :
-                         menu(false, _("Pick your style:"), _("Centipede"), _("Viper"),
-                              _("Scorpion"), _("Lizard"), _("Toad"), NULL);
-            if (choice == 1) {
-                ma_type = "style_centipede";
-            } else if (choice == 2) {
-                ma_type = "style_venom_snake";
-            } else if (choice == 3) {
-                ma_type = "style_scorpion";
-            } else if (choice == 4) {
-                ma_type = "style_lizard";
-            } else { // choice == 5
-                ma_type = "style_toad";
-            }
-            if (PLTYPE_NOW != type) {
-                popup(martialarts[ma_type].description, PF_NONE);
-            }
-        } while (PLTYPE_NOW != type && !query_yn(_("Use this style?")));
-        ma_styles.push_back(ma_type);
-        style_selected = ma_type;
-    }
-    if (has_trait("MARTIAL_ARTS5")) {
-        matype_id ma_type;
-        do {
-            int choice = (PLTYPE_NOW == type) ? rng(1, 3) :
-                         menu(false, _("Pick your style:"), _("Eskrima"), _("Fencing"), _("Pentjak Silat"), NULL);
-            if (choice == 1) {
-                ma_type = "style_eskrima";
-            } else if (choice == 2) {
-                ma_type = "style_fencing";
-            } else if (choice == 3) {
-                ma_type = "style_silat";
-            } 
-            if (PLTYPE_NOW != type) {
-                popup(martialarts[ma_type].description, PF_NONE);
-            }
-        } while (PLTYPE_NOW != type && !query_yn(_("Use this style?")));
-        ma_styles.push_back(ma_type);
-        style_selected = ma_type;
-    }
-
-
     ret_null = item("null", 0);
     weapon = ret_null;
 
@@ -536,7 +450,20 @@ int player::create(character_type type, std::string tempname)
          iter != prof_traits.end(); ++iter) {
          g->u.toggle_trait(*iter);
     }
-
+    for( auto &t : get_traits() ) {
+        std::vector<std::string> styles;
+        for( auto &s : mutation_data[t].initial_ma_styles ) {
+            if( !has_martialart( s ) ) {
+                styles.push_back( s );
+            }
+        }
+        if( !styles.empty() ) {
+            const auto ma_type = choose_ma_style( type, styles );
+            ma_styles.push_back( ma_type );
+            style_selected = ma_type;
+        }
+    }
+    
     // Likewise, the asthmatic start with their medication.
     if (has_trait("ASTHMA")) {
         tmp = item("inhaler", 0, false);
@@ -637,7 +564,7 @@ int set_stats(WINDOW *w, player *u, int &points)
     // Setting the position to -1 ensures that the INBOUNDS check in
     // map.cpp is triggered. This check prevents access to invalid position
     // on the map (like -1,0) and instead returns a dummy default value.
-    u->posx = -1;
+    u->setx( -1 );
     u->reset();
 
     const char clear[] = "                                                ";
@@ -1933,11 +1860,17 @@ int set_description(WINDOW *w, player *u, character_type type, int &points)
     } while (true);
 }
 
-std::vector<std::string> player::get_traits() const
+std::vector<std::string> Character::get_traits() const
 {
     return std::vector<std::string>( my_traits.begin(), my_traits.end() );
 }
-void player::empty_traits()
+
+std::vector<std::string> Character::get_mutations() const
+{
+    return std::vector<std::string>( my_mutations.begin(), my_mutations.end() );
+}
+
+void Character::empty_traits()
 {
     for( auto &traits_iter : traits ) {
         if( has_trait( traits_iter.first ) ) {
@@ -1945,14 +1878,14 @@ void player::empty_traits()
         }
     }
 }
-void player::empty_skills()
+void Character::empty_skills()
 {
     for( auto &skill : Skill::skills ) {
         SkillLevel &level = skillLevel( skill );
         level.level(0);
     }
 }
-void player::add_traits()
+void Character::add_traits()
 {
     for( auto &traits_iter : traits ) {
         if( g->scen->locked_traits( traits_iter.first ) ) {
@@ -1960,7 +1893,7 @@ void player::add_traits()
         }
     }
 }
-std::string player::random_good_trait()
+std::string Character::random_good_trait()
 {
     std::vector<std::string> vTraitsGood;
 
@@ -1973,7 +1906,7 @@ std::string player::random_good_trait()
     return vTraitsGood[rng(0, vTraitsGood.size() - 1)];
 }
 
-std::string player::random_bad_trait()
+std::string Character::random_bad_trait()
 {
     std::vector<std::string> vTraitsBad;
 

@@ -3,6 +3,8 @@
 #include "game.h"
 #include "monster.h"
 #include "overmapbuffer.h"
+#include "sounds.h"
+#include "monstergenerator.h"
 #include <sstream>
 #include <algorithm>
 
@@ -171,7 +173,7 @@ long explosion_iuse::use(player *p, item *it, bool t, point pos) const
 {
     if (t) {
         if (sound_volume >= 0) {
-            g->sound(pos.x, pos.y, sound_volume, sound_msg);
+            sounds::sound(pos.x, pos.y, sound_volume, sound_msg);
         }
         return 0;
     }
@@ -253,7 +255,7 @@ long unfold_vehicle_iuse::use(player *p, item *it, bool /*t*/, point /*pos*/) co
         }
     }
 
-    vehicle *veh = g->m.add_vehicle(vehicle_name, p->posx, p->posy, 0, 0, 0, false);
+    vehicle *veh = g->m.add_vehicle(vehicle_name, p->posx(), p->posy(), 0, 0, 0, false);
     if (veh == NULL) {
         p->add_msg_if_player(m_info, _("There's no room to unfold the %s."), it->tname().c_str());
         return 0;
@@ -306,7 +308,7 @@ long unfold_vehicle_iuse::use(player *p, item *it, bool /*t*/, point /*pos*/) co
     return 1;
 }
 
-consume_drug_iuse::~consume_drug_iuse() {};
+consume_drug_iuse::~consume_drug_iuse() {}
 
 iuse_actor *consume_drug_iuse::clone() const
 {
@@ -375,7 +377,7 @@ long consume_drug_iuse::use(player *p, item *it, bool, point) const
     for( auto field = fields_produced.cbegin(); field != fields_produced.cend(); ++field ) {
         const field_id fid = field_from_ident( field->first );
         for(int i = 0; i < 3; i++) {
-            g->m.add_field(p->posx + int(rng(-2, 2)), p->posy + int(rng(-2, 2)), fid, field->second);
+            g->m.add_field(p->posx() + int(rng(-2, 2)), p->posy() + int(rng(-2, 2)), fid, field->second);
         }
     }
     // Output message.
@@ -390,7 +392,7 @@ long consume_drug_iuse::use(player *p, item *it, bool, point) const
     return it->type->charges_to_use();
 }
 
-delayed_transform_iuse::~delayed_transform_iuse() {};
+delayed_transform_iuse::~delayed_transform_iuse() {}
 
 iuse_actor *delayed_transform_iuse::clone() const
 {
@@ -418,7 +420,7 @@ long delayed_transform_iuse::use( player *p, item *it, bool t, point pos ) const
     return iuse_transform::use( p, it, t, pos );
 }
 
-place_monster_iuse::~place_monster_iuse() {};
+place_monster_iuse::~place_monster_iuse() {}
 
 iuse_actor *place_monster_iuse::clone() const
 {
@@ -443,8 +445,8 @@ long place_monster_iuse::use( player *p, item *it, bool, point ) const
     point target;
     if( place_randomly ) {
         std::vector<point> valid;
-        for( int x = p->posx - 1; x <= p->posx + 1; x++ ) {
-            for( int y = p->posy - 1; y <= p->posy + 1; y++ ) {
+        for( int x = p->posx() - 1; x <= p->posx() + 1; x++ ) {
+            for( int y = p->posy() - 1; y <= p->posy() + 1; y++ ) {
                 if( g->is_empty( x, y ) ) {
                     valid.push_back( point( x, y ) );
                 }
@@ -488,9 +490,7 @@ long place_monster_iuse::use( player *p, item *it, bool, point ) const
                               newmon.name().c_str() );
         amdef.second = ammo_item.charges;
     }
-    const int damfac = 5 - std::max<int>( 0, it->damage ); // 5 (no damage) ... 1 (max damage)
-    // One hp at least, everything else would be unfair (happens only to monster with *very* low hp),
-    newmon.hp = std::max( 1, newmon.hp * damfac / 5 );
+    newmon.init_from_item( *it );
     if( rng( 0, p->int_cur / 2 ) + p->skillLevel( skill1 ) / 2 + p->skillLevel( skill2 ) <
         rng( 0, difficulty ) ) {
         if( hostile_msg.empty() ) {
@@ -516,7 +516,7 @@ long place_monster_iuse::use( player *p, item *it, bool, point ) const
     return 1;
 }
 
-ups_based_armor_actor::~ups_based_armor_actor() {};
+ups_based_armor_actor::~ups_based_armor_actor() {}
 
 iuse_actor *ups_based_armor_actor::clone() const
 {
@@ -580,7 +580,7 @@ long ups_based_armor_actor::use( player *p, item *it, bool t, point ) const
 }
 
 
-pick_lock_actor::~pick_lock_actor() {};
+pick_lock_actor::~pick_lock_actor() {}
 
 iuse_actor *pick_lock_actor::clone() const
 {
@@ -601,7 +601,7 @@ long pick_lock_actor::use( player *p, item *it, bool, point ) const
     if( !choose_adjacent( _( "Use your pick lock where?" ), dirx, diry ) ) {
         return 0;
     }
-    if( dirx == p->posx && diry == p->posy ) {
+    if( dirx == p->posx() && diry == p->posy() ) {
         p->add_msg_if_player( m_info, _( "You pick your nose and your sinuses swing open." ) );
         return 0;
     }
@@ -660,7 +660,7 @@ long pick_lock_actor::use( player *p, item *it, bool, point ) const
     }
     if( type == t_door_locked_alarm && ( door_roll + dice( 1, 30 ) ) > pick_roll &&
         it->damage < 100 ) {
-        g->sound( p->posx, p->posy, 40, _( "An alarm sounds!" ) );
+        sounds::sound( p->posx(), p->posy(), 40, _( "An alarm sounds!" ) );
         if( !g->event_queued( EVENT_WANTED ) ) {
             g->add_event( EVENT_WANTED, int( calendar::turn ) + 300, 0, g->get_abs_levx(), g->get_abs_levy() );
         }
@@ -674,7 +674,7 @@ long pick_lock_actor::use( player *p, item *it, bool, point ) const
 }
 
 
-reveal_map_actor::~reveal_map_actor() {};
+reveal_map_actor::~reveal_map_actor() {}
 
 iuse_actor *reveal_map_actor::clone() const
 {
@@ -717,4 +717,203 @@ long reveal_map_actor::use( player *p, item *it, bool, point ) const
     }
     it->mark_as_used_by_player( *p );
     return 0;
+}
+
+firestarter_actor::~firestarter_actor() {}
+
+void firestarter_actor::load( JsonObject &obj )
+{
+    moves_cost = obj.get_int( "moves_cost", 0 );
+}
+
+iuse_actor *firestarter_actor::clone() const
+{
+    return new firestarter_actor( *this );
+}
+
+bool firestarter_actor::prep_firestarter_use( const player *p, const item *it, point &pos )
+{
+    if( (it->charges == 0) && (!it->has_flag("LENS"))){ // lenses do not need charges
+        return false;
+    }
+    if( p->is_underwater() ) {
+        p->add_msg_if_player(m_info, _("You can't do that while underwater."));
+        return false;
+    }
+    if( !choose_adjacent(_("Light where?"), pos.x, pos.y) ) {
+        return false;
+    }
+    if( pos.x == p->posx() && pos.y == p->posy() ) {
+        p->add_msg_if_player(m_info, _("You would set yourself on fire."));
+        p->add_msg_if_player(_("But you're already smokin' hot."));
+        return false;
+    }
+    if( g->m.get_field( pos, fd_fire ) ) {
+        // check if there's already a fire
+        p->add_msg_if_player(m_info, _("There is already a fire."));
+        return false;
+    }
+    if( g->m.flammable_items_at(pos.x, pos.y) ||
+        g->m.has_flag("FLAMMABLE", pos.x, pos.y) || g->m.has_flag("FLAMMABLE_ASH", pos.x, pos.y) ||
+        g->m.get_field_strength( pos, fd_web ) > 0 ) {
+        return true;
+    } else {
+        p->add_msg_if_player(m_info, _("There's nothing to light there."));
+        return false;
+    }
+}
+
+void firestarter_actor::resolve_firestarter_use( const player *p, const item *, const point &pos )
+{
+    if( g->m.add_field( pos, fd_fire, 1, 100 ) ) {
+        p->add_msg_if_player(_("You successfully light a fire."));
+    }
+}
+
+// TODO: Move prep_firestarter_use here
+long firestarter_actor::use( player *p, item *it, bool t, point pos ) const
+{
+    if (it->has_flag("REFILLABLE_LIGHTER")) {
+        if( p->is_underwater() ) {
+            p->add_msg_if_player(_("The lighter is extinguished."));
+            it->make("ref_lighter");
+            it->active = false;
+            return 0;
+        }
+        if (t) {
+            if (it->charges < it->type->charges_to_use()) {
+                p->add_msg_if_player(_("The lighter burns out."));
+                it->make("ref_lighter");
+                it->active = false;
+            }
+        } else if (it->charges <= 0) {
+            p->add_msg_if_player(_("The %s winks out."), it->tname().c_str());
+        } else { // Turning it off
+            int choice = menu(true, _("refillable lighter (lit)"), _("extinguish"),
+                              _("light something"), _("cancel"), NULL);
+            switch (choice) {
+                case 1: {
+                    p->add_msg_if_player(_("You extinguish the lighter."));
+                    it->make("ref_lighter");
+                    it->active = false;
+                    return 0;
+                }
+                break;
+                case 2:
+                    if( prep_firestarter_use(p, it, pos) ) {
+                        p->moves -= moves_cost;
+                        resolve_firestarter_use(p, it, pos);
+                        return it->type->charges_to_use();
+                    }
+            }
+        }
+        return it->type->charges_to_use();
+    } else { // common ligher or matches
+        if( prep_firestarter_use(p, it, pos) ) {
+            p->moves -= moves_cost;
+            resolve_firestarter_use( p, it, pos );
+            return it->type->charges_to_use();
+        }
+    }
+    return 0;
+}
+
+bool firestarter_actor::can_use( const player* p, const item*, bool, const point& ) const
+{
+    if( p->is_underwater() ) {
+        return false;
+    }
+
+    return true;
+}
+
+extended_firestarter_actor::~extended_firestarter_actor() {}
+
+void extended_firestarter_actor::load( JsonObject &obj )
+{
+    need_sunlight = obj.get_bool( "need_sunlight", false );
+    moves_cost = obj.get_int( "moves_cost", 0 );
+}
+
+iuse_actor *extended_firestarter_actor::clone() const
+{
+    return new extended_firestarter_actor( *this );
+}
+
+int extended_firestarter_actor::calculate_time_for_lens_fire( const player *p, float light_level ) const
+{
+    // base moves based on sunlight levels... 1 minute when sunny (80 lighting),
+    // ~10 minutes when clear (60 lighting)
+    float moves_base = std::pow( 80 / light_level, 8 ) * 1000 ;
+    // survival 0 takes 3 * moves_base, survival 1 takes 1,5 * moves_base,
+    // max moves capped at moves_base
+    float moves_modifier = 1 / ( p->get_skill_level("survival") * 0.33 + 0.33 );
+    if( moves_modifier < 1 ) {
+        moves_modifier = 1;
+    }
+    return int(moves_base * moves_modifier);
+}
+
+long extended_firestarter_actor::use( player *p, item *it, bool, point pos ) const
+{
+    if( need_sunlight ) {
+        // Needs the correct weather, light and to be outside.
+        if( (g->weather == WEATHER_CLEAR || g->weather == WEATHER_SUNNY) &&
+            g->natural_light_level() >= 60 && !g->m.has_flag("INDOORS", pos.x, pos.y) ) {
+            if( prep_firestarter_use(p, it, pos ) ) {
+                // turns needed for activity.
+                const int turns = calculate_time_for_lens_fire( p, g->natural_light_level() );
+                if( turns/1000 > 1 ) {
+                    // If it takes less than a minute, no need to inform the player about time.
+                    p->add_msg_if_player(m_info, _("If the current weather holds, it will take around %d minutes to light a fire."), turns / 1000);
+                }
+                p->assign_activity( ACT_START_FIRE, turns, -1, p->get_item_position(it), it->tname() );
+                // Keep natural_light_level for comparing throughout the activity.
+                p->activity.values.push_back( g->natural_light_level() );
+                p->activity.placement = pos;
+                p->practice("survival", 5);
+            }
+        } else {
+            p->add_msg_if_player(_("You need direct sunlight to light a fire with this."));
+        }
+    } else {
+        if( prep_firestarter_use(p, it, pos) ) {
+            float skillLevel = float(p->get_skill_level("survival"));
+            // success chance is 100% but time spent is min 5 minutes at skill == 5 and
+            // it increases for lower skill levels.
+            // max time is 1 hour for 0 survival
+            const float moves_base = 5 * 1000;
+            if( skillLevel < 1 ) {
+                // avoid dividing by zero. scaled so that skill level 0 means 60 minutes work
+                skillLevel = 0.536;
+            }
+            // At survival=5 modifier=1, at survival=1 modifier=~6.
+            float moves_modifier = std::pow( 5 / skillLevel, 1.113 );
+            if (moves_modifier < 1) {
+                moves_modifier = 1; // activity time improvement is capped at skillevel 5
+            }
+            const int turns = int( moves_base * moves_modifier );
+            p->add_msg_if_player(m_info, _("At your skill level, it will take around %d minutes to light a fire."), turns / 1000);
+            p->assign_activity(ACT_START_FIRE, turns, -1, p->get_item_position(it), it->tname());
+            p->activity.placement = pos;
+            p->practice("survival", 10);
+            it->charges -= it->type->charges_to_use() * round(moves_modifier);
+            return 0;
+        }
+    }
+    return 0;
+}
+
+bool extended_firestarter_actor::can_use( const player* p, const item* it, bool t, const point& pos ) const
+{
+    if( !firestarter_actor::can_use( p, it, t, pos ) ) {
+        return false;
+    }
+
+    if( need_sunlight ) {
+        return ( g->weather == WEATHER_CLEAR || g->weather == WEATHER_SUNNY ) &&
+                 g->natural_light_level() >= 60 && !g->m.has_flag( "INDOORS", pos.x, pos.y );
+    }
+
+    return true;
 }

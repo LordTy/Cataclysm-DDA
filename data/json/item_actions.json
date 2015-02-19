@@ -5,12 +5,16 @@
         "name" : "Sew"
     },{
         "type" : "item_action",
+        "id" : "SEW_ADVANCED",
+        "name" : "Modify Clothing"
+    },{
+        "type" : "item_action",
         "id" : "KNIFE",
         "name" : "Use as knife"
     },{
         "type" : "item_action",
-        "id" : "FIRESTARTER",
-        "name" : "Start a fire"
+        "id" : "firestarter",
+        "name" : "Start a fire quickly"
     },{
         "type" : "item_action",
         "id" : "HAMMER",
@@ -19,6 +23,10 @@
         "type" : "item_action",
         "id" : "SOLDER_WELD",
         "name" : "Repair metal/plastic/kevlar"
+    },{
+        "type" : "item_action",
+        "id" : "picklock",
+        "name" : "Pick a lock"
     },{
         "type" : "item_action",
         "id" : "CROWBAR",
@@ -71,5 +79,9 @@
         "type" : "item_action",
         "id" : "ANTICONVULSANT",
         "name" : "Take anticonvulsant"
+    },{
+        "type" : "item_action",
+        "id" : "extended_firestarter",
+        "name" : "Start a fire slowly"
     }
 ]

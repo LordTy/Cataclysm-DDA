@@ -448,7 +448,7 @@ void finalize_overmap_terrain( )
     for( auto &elem : region_settings_map ) {
         elem.second.setup();
     }
-};
+}
 
 
 
@@ -593,7 +593,7 @@ void load_region_settings( JsonObject &jo )
         }
     }
     region_settings_map[new_region.id] = new_region;
-};
+}
 
 void reset_region_settings()
 {
@@ -1388,75 +1388,62 @@ void overmap::draw(WINDOW *w, WINDOW *wbar, const tripoint &center,
                 ter_sym = '*';
             } else if (blink && overmap_buffer.has_note(omx, omy, z)) {
                 // Display notes in all situations, even when not seen
-                ter_color = c_yellow;
                 const std::string &note_text = overmap_buffer.note(omx, omy, z);
-                if (note_text.length() >= 2 && note_text[1] == ';') {
-                    if (note_text[0] == 'r') {
-                        ter_color = c_ltred;
+
+                ter_color = c_yellow;
+                ter_sym = 'N';
+
+                int symbolIndex = note_text.find(':');
+                int colorIndex = note_text.find(';');
+
+                bool symbolFirst = symbolIndex < colorIndex;
+
+                if (colorIndex > -1 && symbolIndex > -1) {
+                    if (symbolFirst) {
+                        if (colorIndex > 4) {
+                            colorIndex = -1;
+                        }
+                        if (symbolIndex > 1) {
+                            symbolIndex = -1;
+                            colorIndex = -1;
+                        }
+                    } else {
+                        if (symbolIndex > 4) {
+                            symbolIndex = -1;
+                        }
+                        if (colorIndex > 2) {
+                            colorIndex = -1;
+                        }
                     }
-                    if (note_text[0] == 'R') {
-                        ter_color = c_red;
-                    }
-                    if (note_text[0] == 'g') {
-                        ter_color = c_ltgreen;
-                    }
-                    if (note_text[0] == 'G') {
-                        ter_color = c_green;
-                    }
-                    if (note_text[0] == 'b') {
-                        ter_color = c_ltblue;
-                    }
-                    if (note_text[0] == 'B') {
-                        ter_color = c_blue;
-                    }
-                    if (note_text[0] == 'W') {
-                        ter_color = c_white;
-                    }
-                    if (note_text[0] == 'C') {
-                        ter_color = c_cyan;
-                    }
-                    if (note_text[0] == 'P') {
-                        ter_color = c_pink;
-                    }
-                } else if (note_text.length() >= 4 && note_text[3] == ';') {
-                    if (note_text[2] == 'r') {
-                        ter_color = c_ltred;
-                    }
-                    if (note_text[2] == 'R') {
-                        ter_color = c_red;
-                    }
-                    if (note_text[2] == 'g') {
-                        ter_color = c_ltgreen;
-                    }
-                    if (note_text[2] == 'G') {
-                        ter_color = c_green;
-                    }
-                    if (note_text[2] == 'b') {
-                        ter_color = c_ltblue;
-                    }
-                    if (note_text[2] == 'B') {
-                        ter_color = c_blue;
-                    }
-                    if (note_text[2] == 'W') {
-                        ter_color = c_white;
-                    }
-                    if (note_text[2] == 'C') {
-                        ter_color = c_cyan;
-                    }
-                    if (note_text[2] == 'P') {
-                        ter_color = c_pink;
-                    }
-                } else {
-                    ter_color = c_yellow;
+                } else if (colorIndex > 2) {
+                    colorIndex = -1;
+                } else if (symbolIndex > 1) {
+                    symbolIndex = -1;
                 }
 
-                if (note_text.length() >= 2 && note_text[1] == ':') {
-                    ter_sym = note_text[0];
-                } else if (note_text.length() >= 4 && note_text[3] == ':') {
-                    ter_sym = note_text[2];
-                } else {
-                    ter_sym = 'N';
+                if (symbolIndex > -1) {
+
+                    int symbolStart = 0;
+                    if (colorIndex > -1 && !symbolFirst) {
+                        symbolStart = colorIndex + 1;
+                    }
+
+                    ter_sym = note_text.substr(symbolStart, symbolIndex - symbolStart).c_str()[0];
+
                 }
+
+                if (colorIndex > -1) {
+
+                    int colorStart = 0;
+                    if (symbolIndex > -1 && symbolFirst) {
+                        colorStart = symbolIndex + 1;
+                    }
+
+                    std::string sym = note_text.substr(colorStart, colorIndex - colorStart);
+
+                    ter_color = get_note_color( sym );
+                }
+
             } else if (!see) {
                 // All cases above ignore the seen-status,
                 ter_color = c_dkgray;
@@ -1575,13 +1562,56 @@ void overmap::draw(WINDOW *w, WINDOW *wbar, const tripoint &center,
     }
 
     std::string note_text = overmap_buffer.note(cursx, cursy, z);
-    if ((note_text.length() >= 4 && note_text[3] == ':') || (note_text.length() >= 4 &&
-            note_text[3] == ';')) {
-        note_text.erase(0, 4);
-    } else if ((note_text.length() >= 2 && note_text[1] == ':') || (note_text.length() >= 2 &&
-               note_text[1] == ';') ) {
-        note_text.erase(0, 2);
+
+    int symbolIndex = note_text.find(':');
+    int colorIndex = note_text.find(';');
+
+    bool symbolFirst = symbolIndex < colorIndex;
+
+    if (colorIndex > -1 && symbolIndex > -1) {
+        if (symbolFirst) {
+            if (colorIndex > 4) {
+                colorIndex = -1;
+            }
+            if (symbolIndex > 1) {
+                symbolIndex = -1;
+                colorIndex = -1;
+            }
+        } else {
+            if (symbolIndex > 4) {
+                symbolIndex = -1;
+            }
+            if (colorIndex > 2) {
+                colorIndex = -1;
+            }
+        }
+    } else if (colorIndex > 2) {
+        colorIndex = -1;
+    } else if (symbolIndex > 1) {
+        symbolIndex = -1;
     }
+
+    int erasureLength = 0;
+
+    if (symbolIndex > -1 && symbolIndex < 5) {
+        if (colorIndex > -1 && !symbolFirst) {
+            erasureLength = symbolIndex;
+        } else if (colorIndex == -1) {
+            erasureLength = symbolIndex;
+        }
+    }
+    if (colorIndex > -1 && colorIndex < 5) {
+        if (symbolIndex > -1 && symbolFirst) {
+            erasureLength = colorIndex;
+        } else if (symbolIndex == -1) {
+            erasureLength = colorIndex;
+        }
+    }
+
+    if (erasureLength > 0) {
+        note_text.erase(0, erasureLength + 1);
+    }
+
     std::vector<std::string> corner_text;
     if (!note_text.empty()) {
         corner_text.push_back( note_text );
@@ -1783,9 +1813,16 @@ tripoint overmap::draw_overmap(const tripoint &orig, bool debug_mongroup, const 
         } else if (action == "QUIT") {
             ret = invalid_tripoint;
         } else if (action == "CREATE_NOTE") {
+            std::string color_notes = _("Color codes: ");
+            for( auto color_pair : get_note_color_names() ) {
+                // The color index is not translatable, but the name is.
+                color_notes += string_format( "%s:%s, ", color_pair.first.c_str(),
+                                              _(color_pair.second.c_str()) );
+            }
             const std::string old_note = overmap_buffer.note(curs);
-            const std::string new_note = string_input_popup(_("Note (X:TEXT for custom symbol, G; for color):"),
-                                         45, old_note); // 45 char max
+            const std::string new_note = string_input_popup(
+                _("Note (X:TEXT for custom symbol, G; for color):"),
+                45, old_note, color_notes); // 45 char max
             if(old_note != new_note) {
                 overmap_buffer.add_note(curs, new_note);
             }
@@ -3651,7 +3688,7 @@ oter_iid oterfind(const std::string id)
         return 0;
     }
     return otermap[id].loadid;
-};
+}
 
 void set_oter_ids()   // fixme constify
 {
@@ -3663,7 +3700,7 @@ void set_oter_ids()   // fixme constify
     ot_forest_thick = oterfind("forest_thick");
     ot_forest_water = oterfind("forest_water");
     ot_river_center = oterfind("river_center");
-};
+}
 
 
 //////////////////////////
@@ -3785,7 +3822,7 @@ oter_id::oter_id(const char *v)
 // wprint("%s",ter(...).c_str() );
 const char *oter_id::c_str() const
 {
-    return std::string(oterlist[_val].id).c_str();
+    return oterlist[_val].id.c_str();
 }
 
 

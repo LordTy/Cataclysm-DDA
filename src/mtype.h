@@ -3,18 +3,22 @@
 // SEE ALSO: monitemsdef.cpp, which defines data on which items any given
 // monster may carry.
 
+#include "material.h"
+#include "enums.h"
+#include "color.h"
+#include "field.h"
+
 #include <bitset>
 #include <string>
 #include <vector>
 #include <set>
 #include <math.h>
-#include "mondeath.h"
-#include "monattack.h"
-#include "mondefense.h"
-#include "material.h"
-#include "enums.h"
-#include "color.h"
-#include "field.h"
+
+class Creature;
+
+using mon_action_death  = void (*)(monster*);
+using mon_action_attack = void (*)(monster*, int);
+using mon_action_defend = void (*)(monster*, Creature*, projectile const*);
 
 typedef std::string itype_id;
 
@@ -32,8 +36,8 @@ enum monster_trigger {
     MTRIG_NULL = 0,
     MTRIG_STALK,  // Increases when following the player
     MTRIG_MEAT,  // Meat or a corpse nearby
-    MTRIG_PLAYER_WEAK, // The player is hurt
-    MTRIG_PLAYER_CLOSE, // The player gets within a few tiles
+    MTRIG_HOSTILE_WEAK, // Hurt hostile player/npc/monster seen
+    MTRIG_HOSTILE_CLOSE, // Hostile creature within a few tiles
     MTRIG_HURT,  // We are hurt
     MTRIG_FIRE,  // Fire nearby
     MTRIG_FRIEND_DIED, // A monster of the same type died
@@ -125,7 +129,31 @@ enum m_flag {
     MF_CBM_SUBS,            // May produce a bionic from bionics_subs when butchered.
     MF_FISHABLE,            // Its fishable.
     MF_GROUP_BASH,          // Monsters that can pile up against obstacles and add their strength together to break them.
+    MF_SWARMS,              // Monsters that like to group together and form loose packs
+    MF_GROUP_MORALE,        // Monsters that are more courageous when near friends
     MF_MAX                  // Sets the length of the flags - obviously must be LAST
+};
+
+enum mf_attitude {
+    MFA_BY_MOOD = 0,    // Hostile if angry
+    MFA_NEUTRAL,        // Neutral even when angry
+    MFA_FRIENDLY        // Friendly
+};
+
+class monfaction;
+
+typedef std::map< const monfaction*, mf_attitude > mfaction_att_map;
+
+class monfaction {
+    public:
+        int id;
+        std::string name;
+        const monfaction *base_faction;
+
+        mf_attitude attitude( const monfaction *other ) const;
+        friend class MonsterGenerator;
+    private:
+        mfaction_att_map attitude_map;
 };
 
 /** Used to store monster effects placed on attack */
@@ -146,11 +174,13 @@ struct mtype {
         friend class MonsterGenerator;
         std::string name;
         std::string name_plural;
+        std::string faction_name;
     public:
         std::string id;
         std::string description;
         std::set<std::string> species, categories;
         std::set< int > species_id;
+        const monfaction *default_faction;
         /** UTF-8 encoded symbol, should be exactyle one cell wide. */
         std::string sym;
         nc_color color;
@@ -188,12 +218,16 @@ struct mtype {
         float luminance;           // 0 is default, >0 gives luminance to lightmap
         int hp;
         std::vector<unsigned int> sp_freq;     // How long sp_attack takes to charge
-        std::vector<void (mdeath::*)(monster *)> dies; // What happens when this monster dies
+        
         unsigned int def_chance; // How likely a special "defensive" move is to trigger (0-100%, default 0)
-        std::vector<void (mattack::*)(monster *, int index)> sp_attack; // This monster's special attack
+        
+        std::vector<mon_action_death>  dies;       // What happens when this monster dies
+        std::vector<mon_action_attack> sp_attack;  // This monster's special attack
+
         // This monster's special "defensive" move that may trigger when the monster is attacked.
         // Note that this can be anything, and is not necessarily beneficial to the monster
-        void (mdefense::*sp_defense)(monster *, Creature *, const projectile *);
+        mon_action_defend sp_defense;
+
         // Default constructor
         mtype ();
         /**

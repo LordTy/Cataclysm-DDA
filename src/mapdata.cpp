@@ -4,6 +4,7 @@
 #include "game_constants.h"
 #include "debug.h"
 #include <ostream>
+#include <memory>
 
 std::vector<ter_t> terlist;
 std::map<std::string, ter_t> termap;
@@ -165,7 +166,7 @@ furn_t null_furniture_t() {
   new_furniture.close = "";
   new_furniture.max_volume = MAX_VOLUME_IN_SQUARE;
   return new_furniture;
-};
+}
 
 ter_t null_terrain_t() {
   ter_t new_terrain;
@@ -189,7 +190,7 @@ ter_t null_terrain_t() {
   new_terrain.close = "";
   new_terrain.max_volume = MAX_VOLUME_IN_SQUARE;
   return new_terrain;
-};
+}
 
 void load_furniture(JsonObject &jsobj)
 {
@@ -339,7 +340,7 @@ ter_id terfind(const std::string & id) {
          return 0;
     }
     return termap[id].loadid;
-};
+}
 
 ter_id t_null,
     t_hole, // Real nothingness; makes you fall a z-level
@@ -677,7 +678,7 @@ void set_ter_ids() {
     t_pavement_y_bg_dp = terfind("t_pavement_y_bg_dp");
     t_sidewalk_bg_dp = terfind("t_sidewalk_bg_dp");
     t_guardrail_bg_dp = terfind("t_guardrail_bg_dp");
-};
+}
 
 furn_id furnfind(const std::string & id) {
     if( furnmap.find(id) == furnmap.end() ) {
@@ -685,7 +686,7 @@ furn_id furnfind(const std::string & id) {
          return 0;
     }
     return furnmap[id].loadid;
-};
+}
 
 furn_id f_null,
     f_hay,
@@ -714,7 +715,7 @@ furn_id f_null,
     f_flower_marloss,
     f_floor_canvas,
     f_tatami,
-    f_kiln_empty, f_kiln_full;
+    f_kiln_empty, f_kiln_full, f_kiln_metal_empty, f_kiln_metal_full;
 
 void set_furn_ids() {
     f_null=furnfind("f_null");
@@ -805,6 +806,8 @@ void set_furn_ids() {
     f_floor_canvas=furnfind("f_floor_canvas");
     f_kiln_empty=furnfind("f_kiln_empty");
     f_kiln_full=furnfind("f_kiln_full");
+    f_kiln_metal_empty=furnfind("f_kiln_metal_empty");
+    f_kiln_metal_full=furnfind("f_kiln_metal_full");
 }
 
 /*
@@ -888,15 +891,16 @@ void check_furniture_and_terrain()
     }
 }
 
-submap::submap() : ter(), frn(), trp(), rad(), field_count(0), turn_last_touched(0), temperature(0) {
-    for (int x = 0; x < SEEX; x++) {
-        for (int y = 0; y < SEEY; y++) {
-            ter[x][y] = t_null;
-            set_furn(x, y, f_null);
-            set_trap(x, y, tr_null);
-            set_radiation(x, y, 0);
-        }
-    }
+submap::submap()
+{
+    constexpr size_t elements = SEEX * SEEY;
+
+    std::uninitialized_fill_n(&ter[0][0], elements, t_null);
+    std::uninitialized_fill_n(&frn[0][0], elements, f_null);
+    std::uninitialized_fill_n(&lum[0][0], elements, 0);
+    std::uninitialized_fill_n(&trp[0][0], elements, tr_null);
+    std::uninitialized_fill_n(&rad[0][0], elements, 0);
+    
 }
 
 submap::~submap()

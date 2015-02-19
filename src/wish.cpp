@@ -1,10 +1,11 @@
 #include "game.h"
 #include "output.h"
 #include "item_factory.h"
-#include <sstream>
-#include "helper.h"
 #include "uistate.h"
 #include "monstergenerator.h"
+#include "compatibility.h"
+
+#include <sstream>
 
 #define LESS(a, b) ((a)<(b)?(a):(b))
 
@@ -442,7 +443,7 @@ void game::wishitem( player *p, int x, int y)
         return;
     }
     const std::vector<std::string> standard_itype_ids = item_controller->get_all_itype_ids();
-    int amount = 1;
+    int prev_amount, amount = 1;
     uimenu wmenu;
     wmenu.w_x = 0;
     wmenu.w_width = TERMX;
@@ -454,7 +455,7 @@ void game::wishitem( player *p, int x, int y)
 
     for (size_t i = 0; i < standard_itype_ids.size(); i++) {
         item ity( standard_itype_ids[i], 0 );
-        wmenu.addentry( i, true, 0, string_format(_("%s"), ity.tname(1).c_str()) );
+        wmenu.addentry( i, true, 0, string_format(_("%s"), ity.tname(1, false).c_str()) );
         wmenu.entries[i].extratxt.txt = string_format("%c", ity.symbol());
         wmenu.entries[i].extratxt.color = ity.color();
         wmenu.entries[i].extratxt.left = 1;
@@ -463,10 +464,11 @@ void game::wishitem( player *p, int x, int y)
         wmenu.query();
         if ( wmenu.ret >= 0 ) {
             item granted(standard_itype_ids[wmenu.ret], calendar::turn);
+            prev_amount = amount;
             if (p != NULL) {
-                amount = helper::to_int(
-                             string_input_popup(_("How many?"), 20, helper::to_string_int( amount ),
-                                                granted.tname()));
+                amount = std::atoi(
+                             string_input_popup(_("How many?"), 20, to_string( amount ),
+                                                granted.tname()).c_str());
             }
             if (dynamic_cast<wish_item_callback *>(wmenu.callback)->incontainer) {
                 granted = granted.in_its_container();
@@ -480,9 +482,14 @@ void game::wishitem( player *p, int x, int y)
                 m.add_item_or_charges(x, y, granted);
                 wmenu.keypress = 'q';
             }
-            dynamic_cast<wish_item_callback *>(wmenu.callback)->msg =
-                _("Wish granted. Wish for more or hit 'q' to quit.");
+            if ( amount > 0 ) {
+                dynamic_cast<wish_item_callback *>(wmenu.callback)->msg =
+                    _("Wish granted. Wish for more or hit 'q' to quit.");
+            }
             uistate.wishitem_selected = wmenu.ret;
+            if ( !amount ) {
+                amount = prev_amount;
+            }
         }
     } while ( wmenu.keypress != 'q' && wmenu.keypress != KEY_ESCAPE && wmenu.keypress != ' ' );
     delete wmenu.callback;

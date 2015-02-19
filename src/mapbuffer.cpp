@@ -3,7 +3,7 @@
 #include "debug.h"
 #include "translations.h"
 #include "savegame.h"
-#include "file_wrapper.h"
+#include "filesystem.h"
 #include "overmapbuffer.h"
 #include "mapsharing.h"
 #include "mapdata.h"
@@ -476,6 +476,10 @@ submap *mapbuffer::unserialize_submaps( const tripoint &p )
                     while( !jsin.end_array() ) {
                         item tmp;
                         jsin.read( tmp );
+                        if( tmp.is_emissive() ) {
+                            sm->update_lum_add(tmp, i, j);
+                        }
+
                         sm->itm[i][j].push_back( tmp );
                         if( tmp.needs_processing() ) {
                             sm->active_items.add( std::prev(sm->itm[i][j].end()), point( i, j ) );
