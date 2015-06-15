@@ -13,6 +13,12 @@
     },
     {
         "type" : "ammunition_type",
+        "id" : "pointer_fake_ammo",
+        "name" : "none", 
+        "default" : "pointer_fake_ammo"
+    },
+    {
+        "type" : "ammunition_type",
         "id" : "700nx",
         "name" : ".700 Nitro Express",
         "default" : "700nx"
@@ -205,6 +211,12 @@
     },
     {
         "type" : "ammunition_type",
+        "id" : "soap",
+        "name" : "soap",
+        "default" : "soap"
+    },
+    {
+        "type" : "ammunition_type",
         "id" : "tape",
         "name" : "duct tape",
         "default" : "duct_tape"
@@ -235,9 +247,9 @@
     },
     {
         "type" : "ammunition_type",
-        "id" : "muscle",
-        "name" : "muscle",
-        "default" : ""
+        "id" : "reactor_slurry",
+        "name" : "plutonium slurry",
+        "default" : "plut_slurry"
     },
     {
         "type" : "ammunition_type",
@@ -322,6 +334,12 @@
         "id" : "ampoule",
         "name" : "chemical ampoule",
         "default" : "ampoule"
+    },
+    {
+        "type" : "ammunition_type",
+        "id" : "stimpack_ammo",
+        "name" : "stimulant module",
+        "default" : "stimpack_ammo"
     },
     {
         "type" : "ammunition_type",

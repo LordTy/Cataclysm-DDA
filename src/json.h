@@ -201,7 +201,18 @@ class JsonIn
         template<size_t N>
         bool read(std::bitset<N> &b);
         bool read(JsonDeserializer &j);
-        
+        // This is for the string_id type
+        template <typename T>
+        auto read(T &thing) -> decltype(thing.str(), true)
+        {
+            std::string tmp;
+            if( !read( tmp ) ) {
+                return false;
+            }
+            thing = T( tmp );
+            return true;
+        }
+
         // array ~> vector, deque, list
         template <typename T, typename std::enable_if<
             !std::is_same<void, typename T::value_type>::value>::type* = nullptr
@@ -224,7 +235,7 @@ class JsonIn
             } catch (std::string const&) {
                 return false;
             }
-            
+
             return true;
         }
 
@@ -265,7 +276,7 @@ class JsonIn
                 while (!end_array()) {
                     typename T::value_type element;
                     if (read(element)) {
-                        v.emplace(std::move(element));
+                        v.insert(std::move(element));
                     } else {
                         skip_value();
                     }
@@ -273,7 +284,7 @@ class JsonIn
             } catch (std::string const&) {
                 return false;
             }
-            
+
             return true;
         }
 
@@ -387,7 +398,13 @@ class JsonOut
             write(std::string(cstr));
         }
         void write(const JsonSerializer &thing);
-        
+        // This is for the string_id type
+        template <typename T>
+        auto write(const T &thing) -> decltype(thing.str(), (void)0)
+        {
+            write( thing.str() );
+        }
+
         // enum ~> underlying type
         template <typename T, typename std::enable_if<std::is_enum<T>::value>::type* = nullptr>
         void write(T const &value) {
@@ -692,7 +709,7 @@ class JsonArray
         void finish(); // move the stream position to the end of the array
 
         bool has_more(); // true iff more elements may be retrieved with next_*
-        int size();
+        size_t size() const;
         bool empty();
         std::string str(); // copy array json as string
         void throw_error(std::string err);

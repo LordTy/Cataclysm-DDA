@@ -1,4 +1,5 @@
 #include "game.h"
+#include "creature_tracker.h"
 #include "output.h"
 #include "skill.h"
 #include "line.h"
@@ -17,6 +18,7 @@
 #include "messages.h"
 #include "mapdata.h"
 #include "translations.h"
+#include "mongroup.h"
 #include <map>
 #include <set>
 #include <algorithm>
@@ -28,16 +30,16 @@
 #include "debug.h"
 #include "weather.h"
 #include "mapsharing.h"
+#include "monster.h"
+#include "overmap.h"
 
-#include "savegame.h"
 #include "tile_id_data.h"
 
 /*
  * Changes that break backwards compatibility should bump this number, so the game can
  * load a legacy format loader.
  */
-const int savegame_version = 23;
-const int savegame_minver_game = 11;
+const int savegame_version = 24;
 
 /*
  * This is a global set by detected version header in .sav, maps.txt, or overmap.
@@ -45,19 +47,6 @@ const int savegame_minver_game = 11;
  * support for backwards compatibility as well.
  */
 int savegame_loading_version = savegame_version;
-
-////////////////////////////////////////////////////////////////////////////////////////
-///// on runtime populate lookup tables.
-std::map<std::string, int> obj_type_id;
-
-void game::init_savedata_translation_tables() {
-    obj_type_id.clear();
-    for(int i = 0; i < NUM_OBJECTS; i++) {
-        obj_type_id[ obj_type_name[i] ] = i;
-    }
-}
-////////////////////////////////////////////////////////////////////////////////////////
-///// game.sav
 
 /*
  * Save to opened character.sav
@@ -81,11 +70,13 @@ void game::serialize(std::ofstream & fout) {
         json.member( "mostseen", mostseen );
         json.member( "nextspawn", (int)nextspawn );
         // current map coordinates
-        json.member( "levx", levx );
-        json.member( "levy", levy );
-        json.member( "levz", levz );
-        json.member( "om_x", cur_om->pos().x );
-        json.member( "om_y", cur_om->pos().y );
+        tripoint pos_sm = m.get_abs_sub();
+        const point pos_om = overmapbuffer::sm_to_om_remain( pos_sm.x, pos_sm.y );
+        json.member( "levx", pos_sm.x );
+        json.member( "levy", pos_sm.y );
+        json.member( "levz", pos_sm.z );
+        json.member( "om_x", pos_om.x );
+        json.member( "om_y", pos_om.y );
 
         // Next, the scent map.
         std::stringstream rle_out;
@@ -110,7 +101,7 @@ void game::serialize(std::ofstream & fout) {
         json.member( "grscent", rle_out.str() );
 
         // Then each monster
-        json.member( "active_monsters", critter_tracker.list() );
+        json.member( "active_monsters", critter_tracker->list() );
         json.member( "stair_monsters", coming_to_stairs );
 
         // save killcounts.
@@ -173,20 +164,10 @@ void game::unserialize(std::ifstream & fin)
             savegame_loading_version = savedver;
         }
     }
-   if (savegame_loading_version != savegame_version &&
-            savegame_loading_version < savegame_minver_game ) {
-        if ( unserialize_legacy(fin) == true ) {
-            return;
-        } else {
-            popup_nowait(_("Cannot find loader for save data in old version %d, attempting to load as current version %d."),savegame_loading_version, savegame_version);
-        }
-    }
-    // Format version 12. After radical compatibility breaking changes, raise savegame_version, cut below and add to
-    // unserialize_legacy in savegame_legacy.cpp
     std::string linebuf;
     std::stringstream linein;
 
-    int tmpturn, tmpcalstart = 0, tmpspawn, tmprun, tmptar, comx, comy;
+    int tmpturn, tmpcalstart = 0, tmpspawn, tmprun, tmptar, levx, levy, levz, comx, comy;
     JsonIn jsin(fin);
     try {
         JsonObject data = jsin.get_object();
@@ -207,8 +188,7 @@ void game::unserialize(std::ifstream & fin)
         calendar::start = tmpcalstart;
         nextspawn = tmpspawn;
 
-        cur_om = &overmap_buffer.get(comx, comy);
-        m.load(levx, levy, levz, true, cur_om);
+        load_map( tripoint( levx + comx * OMAPX * 2, levy + comy * OMAPY * 2, levz ) );
 
         safe_mode = static_cast<safe_mode_type>( tmprun );
         if (OPTIONS["SAFEMODE"] && safe_mode == SAFE_MODE_OFF) {
@@ -295,14 +275,14 @@ void game::load_weather(std::ifstream & fin) {
         int seed(0);
         std::stringstream liness(line);
         liness >> label >> seed;
-        weatherSeed = seed;
+        weatherGen.set_seed( seed );
     }
 }
 
 void game::save_weather(std::ofstream & fout) {
     fout << "# version " << savegame_version << std::endl;
     fout << "lightning: " << (lightning_active ? "1" : "0") << std::endl;
-    fout << "seed: " << weatherSeed;
+    fout << "seed: " << weatherGen.get_seed();
 }
 ///// overmap
 void overmap::unserialize(std::ifstream & fin, std::string const & plrfilename,
@@ -327,9 +307,7 @@ void overmap::unserialize(std::ifstream & fin, std::string const & plrfilename,
         }
     }
     if (savegame_loading_version != savegame_version) {
-        if ( unserialize_legacy(fin, plrfilename, terfilename) == true ) {
-            return;
-        }
+        return;
     }
 
     int z = 0; // assumption
@@ -377,7 +355,7 @@ void overmap::unserialize(std::ifstream & fin, std::string const & plrfilename,
             ty = 0;
             intr = 0;
             buffer >> cstr >> cx >> cy >> cz >> cs >> cp >> cd >> cdying >> horde >> tx >> ty >>intr;
-            mongroup mg( cstr, cx, cy, cz, cs, cp );
+            mongroup mg( mongroup_id( cstr ), cx, cy, cz, cs, cp );
             // Bugfix for old saves: population of 2147483647 is far too much and will
             // crash the game. This specific number was caused by a bug in
             // overmap::add_mon_group.
@@ -446,7 +424,8 @@ void overmap::unserialize(std::ifstream & fin, std::string const & plrfilename,
                 debugmsg("Overmap %d:%d:%d tried to load object data, without an NPC!\n%s",
                          loc.x, loc.y, itemdata.c_str());
             } else {
-                item tmp(itemdata);
+                item tmp;
+                tmp.load_info(itemdata);
                 npc* last = npcs.back();
                 switch (datatype) {
                 case 'I': npc_inventory.push_back(tmp);                 break;
@@ -468,8 +447,7 @@ void overmap::unserialize(std::ifstream & fin, std::string const & plrfilename,
 
                     if ( data.read("region_id",tmpstr) ) { // temporary, until option DEFAULT_REGION becomes start_scenario.region_id
                         if ( settings.id != tmpstr ) {
-                            std::unordered_map<std::string, regional_settings>::const_iterator rit =
-                                region_settings_map.find( tmpstr );
+                            t_regional_settings_map_citr rit = region_settings_map.find( tmpstr );
                             if ( rit != region_settings_map.end() ) {
                                 // temporary; user changed option, this overmap should remain whatever it was set to.
                                 settings = rit->second; // todo optimize
@@ -553,7 +531,7 @@ void overmap::unserialize(std::ifstream & fin, std::string const & plrfilename,
                 }
             } else if (datatype == 'N') { // Load notes
                 om_note tmp;
-                sfin >> tmp.x >> tmp.y >> tmp.num;
+                sfin >> tmp.x >> tmp.y;
                 getline(sfin, tmp.text); // Chomp endl
                 getline(sfin, tmp.text);
                 if (z >= 0 && z < OVERMAP_LAYERS) {
@@ -624,7 +602,7 @@ void overmap::save() const
         fout << std::endl;
 
         for (auto &i : layer[z].notes) {
-            fout << "N " << i.x << " " << i.y << " " << i.num << std::endl << i.text << std::endl;
+            fout << "N " << i.x << " " << i.y << " " << std::endl << i.text << std::endl;
         }
     }
     fout.close();
@@ -671,7 +649,7 @@ void overmap::save() const
 
     for( auto &mgv : zg ) {
         auto &mg = mgv.second;
-        fout << "Z " << mg.type << " " << mg.posx << " " << mg.posy << " " <<
+        fout << "Z " << mg.type.str() << " " << mg.posx << " " << mg.posy << " " <<
             mg.posz << " " << int(mg.radius) << " " << mg.population << " " <<
             mg.diffuse << " " << mg.dying << " " <<
             mg.horde << " " << mg.tx << " " << mg.ty << " " << mg.interest << std::endl;
@@ -709,16 +687,22 @@ void overmap::save() const
 ///////////////////////////////////////////////////////////////////////////////////////
 ///// master.gsav
 
+void mission::unserialize_all( JsonIn &jsin )
+{
+    jsin.start_array();
+    while( !jsin.end_array() ) {
+        mission mis;
+        mis.deserialize( jsin );
+        active_missions[mis.uid] = mis;
+    }
+}
+
 void game::unserialize_master(std::ifstream &fin) {
-   savegame_loading_version = 0;
-   chkversion(fin);
-   if (savegame_loading_version != savegame_version && savegame_loading_version < 11) {
-       if ( unserialize_master_legacy(fin) == true ) {
-            return;
-       } else {
-           popup_nowait(_("Cannot find loader for save data in old version %d, attempting to load as current version %d."),savegame_loading_version, savegame_version);
-       }
-   }
+    savegame_loading_version = 0;
+    chkversion(fin);
+    if (savegame_loading_version != savegame_version && savegame_loading_version < 11) {
+       popup_nowait(_("Cannot find loader for save data in old version %d, attempting to load as current version %d."),savegame_loading_version, savegame_version);
+    }
     try {
         // single-pass parsing example
         JsonIn jsin(fin);
@@ -732,12 +716,7 @@ void game::unserialize_master(std::ifstream &fin) {
             } else if (name == "next_npc_id") {
                 next_npc_id = jsin.get_int();
             } else if (name == "active_missions") {
-                jsin.start_array();
-                while (!jsin.end_array()) {
-                    mission mis;
-                    mis.deserialize(jsin);
-                    active_missions.push_back(mis);
-                }
+                mission::unserialize_all( jsin );
             } else if (name == "factions") {
                 jsin.start_array();
                 while (!jsin.end_array()) {
@@ -755,6 +734,15 @@ void game::unserialize_master(std::ifstream &fin) {
     }
 }
 
+void mission::serialize_all( JsonOut &json )
+{
+    json.start_array();
+    for( auto & e : active_missions ) {
+        e.second.serialize( json );
+    }
+    json.end_array();
+}
+
 void game::serialize_master(std::ofstream &fout) {
     fout << "# version " << savegame_version << std::endl;
     try {
@@ -766,11 +754,7 @@ void game::serialize_master(std::ofstream &fout) {
         json.member("next_npc_id", next_npc_id);
 
         json.member("active_missions");
-        json.start_array();
-        for (auto &i : active_missions) {
-            i.serialize(json);
-        }
-        json.end_array();
+        mission::serialize_all( json );
 
         json.member("factions");
         json.start_array();

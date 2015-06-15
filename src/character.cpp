@@ -1,5 +1,12 @@
 #include "character.h"
 #include "game.h"
+#include "map.h"
+#include "debug.h"
+#include "mission.h"
+#include "translations.h"
+#include "options.h"
+#include "map_iterator.h"
+#include <map>
 
 Character::Character()
 {
@@ -9,6 +16,14 @@ Character::Character()
 
 field_id Character::bloodType() const
 {
+    if (has_trait("ACIDBLOOD"))
+        return fd_acid;
+    if (has_trait("THRESH_PLANT"))
+        return fd_blood_veggy;
+    if (has_trait("THRESH_INSECT") || has_trait("THRESH_SPIDER"))
+        return fd_blood_insect;
+    if (has_trait("THRESH_CEPHALOPOD"))
+        return fd_blood_invertebrate;
     return fd_blood;
 }
 field_id Character::gibType() const
@@ -27,7 +42,7 @@ const std::string &Character::symbol() const
     return character_symbol;
 }
 
-bool Character::move_effects()
+bool Character::move_effects(bool attacking)
 {
     if (has_effect("downed")) {
         if (rng(0, 40) > get_dex() + int(get_str() / 2)) {
@@ -105,27 +120,6 @@ bool Character::move_effects()
         }
         return false;
     }
-    if (has_effect("amigara")) {
-        int curdist = 999, newdist = 999;
-        for (int cx = 0; cx < SEEX * MAPSIZE; cx++) {
-            for (int cy = 0; cy < SEEY * MAPSIZE; cy++) {
-                if (g->m.ter(cx, cy) == t_fault) {
-                    int dist = rl_dist(cx, cy, posx(), posy());
-                    if (dist < curdist) {
-                        curdist = dist;
-                    }
-                    dist = rl_dist(cx, cy, posx(), posy());
-                    if (dist < newdist) {
-                        newdist = dist;
-                    }
-                }
-            }
-        }
-        if (newdist > curdist) {
-            add_msg_if_player(m_info, _("You cannot pull yourself away from the faultline..."));
-            return false;
-        }
-    }
     // Below this point are things that allow for movement if they succeed
 
     // Currently we only have one thing that forces movement if you succeed, should we get more
@@ -140,11 +134,32 @@ bool Character::move_effects()
             remove_effect("in_pit");
         }
     }
-    return Creature::move_effects();
+    if (has_effect("grabbed")){
+        int zed_number = 0;
+        for( auto &&dest : g->m.points_in_radius( pos(), 1, 0 ) ){
+            if (g->mon_at(dest) != -1){
+                zed_number ++;
+            }
+        }
+        if (attacking == true || zed_number == 0){
+            return true;
+        }
+        if (get_dex() > get_str() ? rng(0, get_dex()) : rng( 0, get_str()) < rng( get_effect_int("grabbed") , 8) ){
+            add_msg_player_or_npc(m_bad, _("You try break out of the grab, but fail!"),
+                                            _("<npcname> tries to break out of the grab, but fails!"));
+            return false;
+        } else {
+            add_msg_player_or_npc(m_good, _("You break out of the grab!"),
+                                            _("<npcname> breaks out of the grab!"));
+            remove_effect("grabbed");
+        }
+    }
+    return Creature::move_effects(attacking);
 }
-void Character::add_effect(efftype_id eff_id, int dur, body_part bp, bool permanent, int intensity)
+void Character::add_effect( efftype_id eff_id, int dur, body_part bp,
+                            bool permanent, int intensity, bool force )
 {
-    Creature::add_effect(eff_id, dur, bp, permanent, intensity);
+    Creature::add_effect( eff_id, dur, bp, permanent, intensity, force );
 }
 
 void Character::recalc_hp()
@@ -213,11 +228,9 @@ void Character::recalc_hp()
 void Character::recalc_sight_limits()
 {
     sight_max = 9999;
-    sight_boost = 0;
-    sight_boost_cap = 0;
 
     // Set sight_max.
-    if (has_effect("blind")) {
+    if (has_effect("blind") || worn_with_flag("BLIND")) {
         sight_max = 0;
     } else if (has_effect("in_pit") ||
             (has_effect("boomered") && (!(has_trait("PER_SLIME_OK")))) ||
@@ -236,44 +249,100 @@ void Character::recalc_sight_limits()
         sight_max = 6;
     }
 
-    // Set sight_boost and sight_boost_cap, based on night vision.
-    // (A player will never have more than one night vision trait.)
-    sight_boost_cap = 12;
+    vision_mode_cache.reset();
     // Debug-only NV, by vache's request
-    if (has_trait("DEBUG_NIGHTVISION")) {
-        sight_boost = 59;
-        sight_boost_cap = 59;
-    } else if (has_nv() || is_wearing("rm13_armor_on") || has_active_mutation("NIGHTVISION3") ||
-        has_active_mutation("ELFA_FNV") || (has_active_mutation("CEPH_VISION")) ) {
-        // Yes, I'm breaking the cap. I doubt the reality bubble shrinks at night.
-        // BIRD_EYE represents excellent fine-detail vision so I think it works.
-        if (has_trait("BIRD_EYE")) {
-            sight_boost = 13;
-        }
-        else {
-        sight_boost = sight_boost_cap;
-        }
-    } else if (has_active_mutation("ELFA_NV")) {
-        sight_boost = 6; // Elf-a and Bird eyes shouldn't coexist
-    } else if (has_active_mutation("NIGHTVISION2") || has_active_mutation("FEL_NV") ||
-        has_active_mutation("URSINE_EYE")) {
-        if (has_trait("BIRD_EYE")) {
-            sight_boost = 5;
-        }
-         else {
-            sight_boost = 4;
-         }
-    } else if (has_active_mutation("NIGHTVISION")) {
-        if (has_trait("BIRD_EYE")) {
-            sight_boost = 2;
-        }
-        else {
-            sight_boost = 1;
-        }
+    if( has_trait("DEBUG_NIGHTVISION") ) {
+        vision_mode_cache.set( DEBUG_NIGHTVISION );
+    }
+    if( has_nv() || is_wearing("rm13_armor_on") ) {
+        vision_mode_cache.set( NV_GOGGLES );
+    }
+    if( has_active_mutation("NIGHTVISION3") ) {
+        vision_mode_cache.set( NIGHTVISION_3 );
+    }
+    if( has_active_mutation("ELFA_FNV") ) {
+        vision_mode_cache.set( FULL_ELFA_VISION );
+    }
+    if( has_active_mutation("CEPH_VISION") ) {
+        vision_mode_cache.set( CEPH_VISION );
+    }
+    if (has_active_mutation("ELFA_NV")) {
+        vision_mode_cache.set( ELFA_VISION );
+    }
+    if( has_active_mutation("NIGHTVISION2") ) {
+        vision_mode_cache.set( NIGHTVISION_2 );
+    }
+    if( has_active_mutation("FEL_NV") ) {
+        vision_mode_cache.set( FELINE_VISION );
+    }
+    if( has_active_mutation("URSINE_EYE") ) {
+        vision_mode_cache.set( URSINE_VISION );
+    }
+    if (has_active_mutation("NIGHTVISION")) {
+        vision_mode_cache.set(NIGHTVISION_1);
+    }
+    if( has_trait("BIRD_EYE") ) {
+        vision_mode_cache.set( BIRD_EYE);
     }
 }
 
-bool Character::has_bionic(const bionic_id & b) const
+float Character::get_vision_threshold(int light_level) const {
+    // Bail out in extremely common case where character hs no special vision mode or
+    // it's too bright for nightvision to work.
+    if( vision_mode_cache.none() || light_level > LIGHT_AMBIENT_LIT ) {
+        return LIGHT_AMBIENT_LOW;
+    }
+    // As ligt_level goes from LIGHT_AMBIENT_MINIMAL to LIGHT_AMBIENT_LIT,
+    // dimming goes from 1.0 to 2.0.
+    const float dimming_from_light = 1.0 + (((float)light_level - LIGHT_AMBIENT_MINIMAL) /
+                                            (LIGHT_AMBIENT_LIT - LIGHT_AMBIENT_MINIMAL));
+    float threshold = LIGHT_AMBIENT_LOW;
+
+    /**
+     * Consider vision modes in order of descending goodness until we get a hit.
+     * The values are based on expected sight distance in "total darkness", which is set to 3.7.
+     * The range is given by the formula distance = -log(threshold / light_level) / attenuation
+     * This is an upper limit, any smoke or similar should shorten the effective distance.
+     * The numbers here are hand-tuned to provide the desired ranges,
+     * would be nice to derive them with a constexpr function or similar instead.
+     */
+    if( vision_mode_cache[DEBUG_NIGHTVISION] ) {
+        // Debug vision always works with absurdly little light.
+        threshold = 0.01;
+    } else if( vision_mode_cache[NV_GOGGLES] || vision_mode_cache[NIGHTVISION_3] ||
+               vision_mode_cache[FULL_ELFA_VISION] || vision_mode_cache[CEPH_VISION] ) {
+        if( vision_mode_cache[BIRD_EYE] ) {
+            // Bird eye adds one, so 13.
+            threshold = 1.9;
+        } else {
+            // Highest normal night vision is expected to provide sight out to 12 squares.
+            threshold = 1.99;
+        }
+    } else if( vision_mode_cache[ELFA_VISION] ) {
+        // Range 7.
+        threshold = 2.65;
+    } else if( vision_mode_cache[NIGHTVISION_2] || vision_mode_cache[FELINE_VISION] ||
+               vision_mode_cache[URSINE_VISION] ) {
+        if( vision_mode_cache[BIRD_EYE] ) {
+            // Range 5.
+            threshold = 2.78;
+        } else {
+            // Range 4.
+            threshold = 2.9;
+        }
+    } else if( vision_mode_cache[NIGHTVISION_1] ) {
+        if( vision_mode_cache[BIRD_EYE] ) {
+            // Range 3.
+            threshold = 3.2;
+        } else {
+            // Range 2.
+            threshold = 3.35;
+        }
+    }
+    return std::min( (float)LIGHT_AMBIENT_LOW, threshold * dimming_from_light );
+}
+
+bool Character::has_bionic(const std::string & b) const
 {
     for (auto &i : my_bionics) {
         if (i.id == b) {
@@ -283,7 +352,7 @@ bool Character::has_bionic(const bionic_id & b) const
     return false;
 }
 
-bool Character::has_active_bionic(const bionic_id & b) const
+bool Character::has_active_bionic(const std::string & b) const
 {
     for (auto &i : my_bionics) {
         if (i.id == b) {
@@ -478,11 +547,15 @@ int Character::volume_capacity() const
     return ret;
 }
 
-bool Character::can_pickVolume(int volume) const
+bool Character::can_pickVolume( int volume, bool safe ) const
 {
-    return (volume_carried() + volume <= volume_capacity());
+    if( !safe ) {
+        return volume_carried() + volume <= volume_capacity();
+    } else {
+        return volume_carried() + volume <= volume_capacity() - 2;
+    }
 }
-bool Character::can_pickWeight(int weight, bool safe) const
+bool Character::can_pickWeight( int weight, bool safe ) const
 {
     if (!safe)
     {
@@ -550,17 +623,29 @@ SkillLevel& Character::skillLevel(const Skill* _skill)
     return _skills[_skill];
 }
 
-SkillLevel Character::get_skill_level(const Skill* _skill) const
+SkillLevel& Character::skillLevel(Skill const &_skill)
+{
+    return skillLevel(&_skill);
+}
+
+SkillLevel const& Character::get_skill_level(const Skill* _skill) const
 {
     for( const auto &elem : _skills ) {
         if( elem.first == _skill ) {
             return elem.second;
         }
     }
-    return SkillLevel();
+
+    static SkillLevel const dummy_result;
+    return dummy_result;
 }
 
-SkillLevel Character::get_skill_level(const std::string &ident) const
+SkillLevel const& Character::get_skill_level(const Skill &_skill) const
+{
+    return get_skill_level(&_skill);
+}
+
+SkillLevel const& Character::get_skill_level(const std::string &ident) const
 {
     const Skill* sk = Skill::skill(ident);
     return get_skill_level(sk);
@@ -581,12 +666,22 @@ void Character::die(Creature* nkiller)
 {
     set_killer( nkiller );
     set_turn_died(int(calendar::turn));
+    if( has_effect( "lightsnare" ) ) {
+        inv.add_item( item( "string_36", 0 ) );
+        inv.add_item( item( "snare_trigger", 0 ) );
+    }
+    if( has_effect( "heavysnare" ) ) {
+        inv.add_item( item( "rope_6", 0 ) );
+        inv.add_item( item( "snare_trigger", 0 ) );
+    }
+    if( has_effect( "beartrap" ) ) {
+        inv.add_item( item( "beartrap", 0 ) );
+    }
+    mission::on_creature_death( *this );
 }
 
 void Character::reset_stats()
 {
-    Creature::reset_stats();
-    
     // Bionic buffs
     if (has_active_bionic("bio_hydraulics"))
         mod_str_bonus(20);
@@ -653,6 +748,9 @@ void Character::reset_stats()
     else if (str_max <= 5) {mod_dodge_bonus(1);} // Bonus if we're small
 
     nv_cached = false;
+
+    // Has to be at the end because it applies the bonuses
+    Creature::reset_stats();
 }
 
 bool Character::has_nv()

@@ -23,6 +23,8 @@ CataclysmWin.layout
 WinDepend/
 *.7z
 *.zip
+build/
+dep/
 
 data/font/
 config/
@@ -87,3 +89,6 @@ nbproject/
 # OSX
 Cataclysm.app
 data/osx/AppIcon.icns
+
+# Jetbrains CLion
+.idea/

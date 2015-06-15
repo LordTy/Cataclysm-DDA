@@ -31,10 +31,14 @@
 # Compile localization files for specified languages
 #  make LANGUAGES="<lang_id_1>[ lang_id_2][ ...]"
 #  (for example: make LANGUAGES="zh_CN zh_TW" for Chinese)
+# Change mapsize (reality bubble size)
+#  make MAPSIZE=<size>
 # Install to system directories.
 #  make install
-# Enable lua debug support
+# Enable lua support. Required only for full-fledged mods.
 #  make LUA=1
+# Use user's XDG base directories for save files and configs.
+#  make USE_XDG_DIR=1
 # Use user's home directory for save files.
 #  make USE_HOME_DIR=1
 # Use dynamic linking (requires system libraries).
@@ -75,7 +79,7 @@ endif
 #DEFINES += -DDEBUG_ENABLE_MAP_GEN
 #DEFINES += -DDEBUG_ENABLE_GAME
 
-VERSION = 0.B
+VERSION = 0.C
 
 TARGET = cataclysm
 TILESTARGET = cataclysm-tiles
@@ -110,6 +114,8 @@ else
 endif
 RC  = $(CROSS)windres
 
+# We don't need scientific precision for our math functions, this lets them run much faster.
+CXXFLAGS += -ffast-math
 # enable optimizations. slow to build
 ifdef RELEASE
   ifeq ($(NATIVE), osx)
@@ -185,6 +191,7 @@ ifeq ($(NATIVE), osx)
   ifeq ($(LOCALIZE), 1)
     LDFLAGS += -lintl
     ifeq ($(MACPORTS), 1)
+      CXXFLAGS += -I$(shell ncursesw5-config --includedir)
       LDFLAGS += -L$(shell ncursesw5-config --libdir)
     endif
   endif
@@ -239,6 +246,10 @@ ifeq ($(TARGETSYSTEM),WINDOWS)
   ifeq ($(NATIVE), win64)
     RFLAGS += -F pe-x86-64
   endif
+endif
+
+ifdef MAPSIZE
+    CXXFLAGS += -DMAPSIZE=$(MAPSIZE)
 endif
 
 ifdef SOUND
@@ -400,7 +411,17 @@ ifeq ($(TARGETSYSTEM), CYGWIN)
 endif
 
 ifeq ($(USE_HOME_DIR),1)
+  ifeq ($(USE_XDG_DIR),1)
+    $(error "USE_HOME_DIR=1 does not work with USE_XDG_DIR=1")
+  endif
   DEFINES += -DUSE_HOME_DIR
+endif
+
+ifeq ($(USE_XDG_DIR),1)
+  ifeq ($(USE_HOME_DIR),1)
+    $(error "USE_HOME_DIR=1 does not work with USE_XDG_DIR=1")
+  endif
+  DEFINES += -DUSE_XDG_DIR
 endif
 
 all: version $(TARGET) $(L10N)
@@ -427,7 +448,7 @@ $(DDIR):
 	@mkdir $(DDIR)
 
 $(ODIR)/%.o: $(SRC_DIR)/%.cpp
-	$(CXX) $(DEFINES) $(CXXFLAGS) -c $< -o $@
+	$(CXX) $(CPPFLAGS) $(DEFINES) $(CXXFLAGS) -c $< -o $@
 
 $(ODIR)/%.o: $(SRC_DIR)/%.rc
 	$(RC) $(RFLAGS) $< -o $@
@@ -594,7 +615,7 @@ ctags: $(SOURCES) $(HEADERS)
 
 etags: $(SOURCES) $(HEADERS)
 	etags $(SOURCES) $(HEADERS)
-	find data/json -name "*.json" -print0 | xargs -0 -L 50 etags --append
+	find data -name "*.json" -print0 | xargs -0 -L 50 etags --append
 
 tests: $(ODIR) $(DDIR) $(OBJS)
 	$(MAKE) -C tests
