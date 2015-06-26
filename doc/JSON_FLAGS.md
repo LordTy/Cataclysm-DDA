@@ -718,6 +718,7 @@ Some armor flags, such as `WATCH` and `ALARMCLOCK` are compatible with other ite
 ## Guns
 
 - ```MODE_BURST``` Has a burst-fire mode.
+- ```BURST_ONLY``` No single-fire mode. Note that this is an additional flag to the above "MODE_BURST" flag.
 - ```RELOAD_AND_SHOOT``` Firing automatically reloads and then shoots.
 - ```RELOAD_ONE``` Only reloads one round at a time.
 - ```NO_AMMO``` Does not directly have a loaded ammo type.
@@ -738,6 +739,7 @@ Some armor flags, such as `WATCH` and `ALARMCLOCK` are compatible with other ite
 - ```UNDERWATER_GUN``` Gun is optimized for usage underwater, does perform badly outside of water.
 - ```NEVER_JAMS``` Never malfunctions.
 - ```COLLAPSIBLE_STOCK``` Reduces weapon volume proportional to the base size of the gun excluding any mods (see also SLOW_WIELD)
+- ```IRREMOVABLE``` Makes so that the gunmod cannot be removed.
 
 ## Tools
 

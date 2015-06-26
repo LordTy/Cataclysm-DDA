@@ -3412,7 +3412,7 @@ int player::print_aim_bars( WINDOW *w, int line_number, item *weapon, Creature *
     return line_number;
 }
 
-void player::print_gun_mode( WINDOW *w, nc_color c )
+std::string player::print_gun_mode()
 {
     // Print current weapon, or attachment if active.
     item* gunmod = weapon.active_gunmod();
@@ -3424,35 +3424,36 @@ void player::print_gun_mode( WINDOW *w, nc_color c )
                 attachment << " (" << mod.charges << ")";
             }
         }
-        wprintz(w, c, _("%s (Mod)"), attachment.str().c_str());
+        return string_format( _("%s (Mod)"), attachment.str().c_str() );
     } else {
         if (weapon.get_gun_mode() == "MODE_BURST") {
-            trim_and_print(w, getcury(w), getcurx(w), getmaxx(w) - 2, c, _("%s (Burst)"), weapname().c_str());
+            return string_format( _("%s (Burst)"), weapname().c_str() );
         } else if( weapon.get_gun_mode() == "MODE_REACH" ) {
-            trim_and_print(w, getcury(w), getcurx(w), getmaxx(w) - 2, c, _("%s (Bayonet)"), weapname().c_str());
+            return string_format( _("%s (Bayonet)"), weapname().c_str() );
         } else {
-            trim_and_print(w, getcury(w), getcurx(w), getmaxx(w) - 2, c, _("%s"), weapname().c_str());
+            return string_format( _("%s"), weapname().c_str() );
         }
     }
 }
 
-void player::print_recoil( WINDOW *w ) const
+std::string player::print_recoil() const
 {
     if (weapon.is_gun()) {
         const int adj_recoil = recoil + driving_recoil;
         if( adj_recoil > 150 ) {
             // 150 is the minimum when not actively aiming
-            nc_color c = c_ltgray;
+            const char *color_name = "c_ltgray";
             if( adj_recoil >= 690 ) {
-                c = c_red;
+                color_name = "c_red";
             } else if( adj_recoil >= 450 ) {
-                c = c_ltred;
+                color_name = "c_ltred";
             } else if( adj_recoil >= 210 ) {
-                c = c_yellow;
+                color_name = "c_yellow";
             }
-            wprintz(w, c, _("Recoil"));
+            return string_format("<color_%s>%s</color>", color_name, _("Recoil"));
         }
     }
+    return std::string();
 }
 
 int player::draw_turret_aim( WINDOW *w, int line_number, const tripoint &targ ) const
@@ -3489,8 +3490,8 @@ void player::disp_status(WINDOW *w, WINDOW *w2)
 
     {
         const int y = sideStyle ? 1 : 0;
-        wmove( weapwin, y, 0 );
-        print_gun_mode( weapwin, c_ltgray );
+        const int w = getmaxx( weapwin );
+        trim_and_print( weapwin, y, 0, w, c_ltgray, "%s", print_gun_mode().c_str() );
     }
 
     // Print currently used style or weapon mode.
@@ -3657,7 +3658,7 @@ void player::disp_status(WINDOW *w, WINDOW *w2)
     else if (morale_cur > -100) morale_str = "):";
     else if (morale_cur > -200) morale_str = "D:";
     else                        morale_str = "D8";
-    mvwprintz(w, sideStyle ? 0 : 3, sideStyle ? 11 : 10, col_morale, morale_str);
+    mvwprintz(w, sideStyle ? 0 : 3, sideStyle ? 11 : 9, col_morale, morale_str);
 
     vehicle *veh = g->remoteveh();
     if( veh == nullptr && in_vehicle ) {
@@ -3711,18 +3712,21 @@ void player::disp_status(WINDOW *w, WINDOW *w2)
     mvwprintz(w, speedoy, speedox + cruisex, c_ltgreen, "%4d", int(veh->cruise_velocity * conv));
 
   if (veh->velocity != 0) {
-   const int offset_from_screen_edge = sideStyle ? 11 : 3;
+   const int offset_from_screen_edge = sideStyle ? 13 : 8;
    nc_color col_indc = veh->skidding? c_red : c_green;
    int dfm = veh->face.dir() - veh->move.dir();
-   wmove(w, sideStyle ? 5 : 3, getmaxx(w) - offset_from_screen_edge);
-   wprintz(w, col_indc, dfm <  0 ? "L" : ".");
-   wprintz(w, col_indc, dfm == 0 ? "0" : ".");
-   wprintz(w, col_indc, dfm >  0 ? "R" : ".");
+   wmove(w, sideStyle ? 4 : 3, getmaxx(w) - offset_from_screen_edge);
+   if (dfm == 0)
+     wprintz(w, col_indc, "^");
+   else if (dfm < 0)
+     wprintz(w, col_indc, "<");
+   else
+     wprintz(w, col_indc, ">");
   }
 
   if( sideStyle ) {
       // Make sure this is left-aligned.
-      mvwprintz(w, speedoy, getmaxx(w) - 7, c_white, "%s", "St");
+      mvwprintz(w, speedoy, getmaxx(w) - 9, c_white, "%s", _("Stm "));
       print_stamina_bar(w);
   }
  } else {  // Not in vehicle
@@ -3754,18 +3758,18 @@ void player::disp_status(WINDOW *w, WINDOW *w2)
   if (spd_bonus > 0)
    col_spd = c_green;
 
-    int x  = sideStyle ? 19 : 13;
+    int x  = sideStyle ? 18 : 12;
     int y  = sideStyle ?  0 :  3;
-    int dx = sideStyle ?  0 :  6;
+    int dx = sideStyle ?  0 :  7;
     int dy = sideStyle ?  1 :  0;
-    mvwprintz( w, y + dy * 0, x + dx * 0, col_str, _("Str%2d"), str_cur );
-    mvwprintz( w, y + dy * 1, x + dx * 1, col_dex, _("Dex%2d"), dex_cur );
-    mvwprintz( w, y + dy * 2, x + dx * 2, col_int, _("Int%2d"), int_cur );
-    mvwprintz( w, y + dy * 3, x + dx * 3, col_per, _("Per%2d"), per_cur );
+    mvwprintz( w, y + dy * 0, x + dx * 0, col_str, _("Str %d"), str_cur );
+    mvwprintz( w, y + dy * 1, x + dx * 1, col_dex, _("Dex %d"), dex_cur );
+    mvwprintz( w, y + dy * 2, x + dx * 2, col_int, _("Int %d"), int_cur );
+    mvwprintz( w, y + dy * 3, x + dx * 3, col_per, _("Per %d"), per_cur );
 
-    int spdx = sideStyle ?  0 : x + dx * 4;
+    int spdx = sideStyle ?  0 : x + dx * 4 + 1;
     int spdy = sideStyle ?  5 : y + dy * 4;
-    mvwprintz(w, spdy, spdx, col_spd, _("Spd%3d"), get_speed());
+    mvwprintz(w, spdy, spdx, col_spd, _("Spd %d"), get_speed());
     if (this->weight_carried() > this->weight_capacity()) {
         col_time = h_black;
     }
@@ -3776,11 +3780,11 @@ void player::disp_status(WINDOW *w, WINDOW *w2)
             col_time = c_dkgray_red;
         }
     }
-    wprintz(w, col_time, " %3d", movecounter);
+    wprintz(w, col_time, " %d", movecounter);
 
-    wprintz(w, c_white, " %5s", _(move_mode.c_str()));
+    wprintz(w, c_white, " %s", move_mode == "walk" ? _("W") : _("R"));
     if( sideStyle ) {
-        wprintz(w, c_white, " St");
+        mvwprintz(w, spdy, x + dx * 4 - 3, c_white, _("Stm "));
         print_stamina_bar(w);
     }
  }
@@ -6161,18 +6165,12 @@ void player::hardcoded_effects(effect &it)
         if (!has_trait("M_SKIN2")) {
             hurtall(3, nullptr);
         }
-        for (size_t i = 0; i < worn.size(); i++) {
-            item tmp = worn[i];
+        remove_worn_items_with( []( item &tmp ) {
             bool burnVeggy = (tmp.made_of("veggy") || tmp.made_of("paper"));
             bool burnFabric = ((tmp.made_of("cotton") || tmp.made_of("wool")) && one_in(10));
             bool burnPlastic = ((tmp.made_of("plastic")) && one_in(50));
-            if (burnVeggy || burnFabric || burnPlastic) {
-                worn.erase(worn.begin() + i);
-                if (i != 0) {
-                    i--;
-                }
-            }
-        }
+            return burnVeggy || burnFabric || burnPlastic;
+        } );
     } else if (id == "spores") {
         // Equivalent to X in 150000 + health * 100
         if ((!has_trait("M_IMMUNE")) && (one_in(100) && x_in_y(intense, 150 + get_healthy() / 10)) ) {
@@ -6223,31 +6221,14 @@ void player::hardcoded_effects(effect &it)
                                               _("<npcname> vomits thousands of live spores!") );
 
                 moves = -500;
-                int sporex, sporey;
                 for (int i = -1; i <= 1; i++) {
                     for (int j = -1; j <= 1; j++) {
                         if (i == 0 && j == 0) {
                             continue;
                         }
-                        sporex = posx() + i;
-                        sporey = posy() + j;
-                        tripoint sporep( sporex, sporey, posz() );
-                        if (g->m.move_cost(sporex, sporey) > 0) {
-                            const int zid = g->mon_at( sporep );
-                            if (zid >= 0) {  // Spores hit a monster
-                                if (g->u.sees(sporex, sporey) &&
-                                      !g->zombie(zid).type->in_species("FUNGUS")) {
-                                    add_msg(_("The %s is covered in tiny spores!"),
-                                               g->zombie(zid).name().c_str());
-                                }
-                                monster &critter = g->zombie( zid );
-                                if( !critter.make_fungus() ) {
-                                    critter.die( this ); // Counts as kill by player
-                                }
-                            } else if (one_in(4) && g->num_zombies() <= 1000){
-                                g->summon_mon("mon_spore", tripoint(sporex, sporey, posz()));
-                            }
-                        }
+
+                        tripoint sporep( posx() + i, posy() + j, posz() );
+                        g->m.fungalize( sporep, this, 0.25 );
                     }
                 }
             // We're fucked
@@ -7411,7 +7392,7 @@ void player::hardcoded_effects(effect &it)
                     woke_up = true;
                 }
             } else if (tirednessVal < g->light_level() && (fatigue < 10 || one_in(fatigue / 2))) {
-                add_msg(_("It's too bright to sleep."));
+                add_msg_if_player(_("It's too bright to sleep."));
                 // Set ourselves up for removal
                 it.set_duration(0);
                 woke_up = true;
@@ -8729,12 +8710,9 @@ void player::process_active_items()
     }
 
     // worn items
-    for (size_t i = 0; i < worn.size(); i++) {
-        if( worn[i].needs_processing() && worn[i].process( this, pos3(), false ) ) {
-            worn.erase(worn.begin() + i);
-            i--;
-        }
-    }
+    remove_worn_items_with( [this]( item &itm ) {
+        return itm.needs_processing() && itm.process( this, pos3(), false );
+    } );
 
     long ch_UPS = charges_of( "UPS" );
     item *cloak = nullptr;
@@ -8803,9 +8781,10 @@ void player::process_active_items()
         weapon.charges++;
     }
 
-    for( size_t i = 0; i < worn.size() && ch_UPS_used < ch_UPS; ++i ) {
-        item& worn_item = worn[i];
-
+    for( item& worn_item : worn ) {
+        if( ch_UPS_used >= ch_UPS ) {
+            break;
+        }
         if( !worn_item.has_flag( "USE_UPS" ) ) {
             continue;
         }
@@ -8857,7 +8836,9 @@ item& player::i_at(int position)
     if (position < -1) {
         int worn_index = worn_position_to_index(position);
         if (size_t(worn_index) < worn.size()) {
-            return worn[worn_index];
+            auto iter = worn.begin();
+            std::advance( iter, worn_index );
+            return *iter;
         }
     }
     return inv.find_item(position);
@@ -8871,8 +8852,9 @@ int player::invlet_to_position( char invlet ) const
     if( weapon.invlet == invlet ) {
         return -1;
     }
-    for( size_t i = 0; i < worn.size(); i++ ) {
-        if( worn[i].invlet == invlet ) {
+    auto iter = worn.begin();
+    for( size_t i = 0; i < worn.size(); i++, iter++ ) {
+        if( iter->invlet == invlet ) {
             return worn_position_to_index( i );
         }
     }
@@ -8887,8 +8869,9 @@ int player::get_item_position( const item *it ) const
     if( inventory::has_item_with_recursive( weapon, filter ) ) {
         return -1;
     }
-    for( size_t i = 0; i < worn.size(); i++ ) {
-        if( inventory::has_item_with_recursive( worn[i], filter ) ) {
+    auto iter = worn.begin();
+    for( size_t i = 0; i < worn.size(); i++, iter++ ) {
+        if( inventory::has_item_with_recursive( *iter, filter ) ) {
             return worn_position_to_index( i );
         }
     }
@@ -9187,7 +9170,7 @@ bool player::covered_with_flag(const std::string flag, std::bitset<num_bp> parts
 {
     std::bitset<num_bp> covered = 0;
 
-    for (std::vector<item>::const_reverse_iterator armorPiece = worn.rbegin(); armorPiece != worn.rend(); ++armorPiece) {
+    for (auto armorPiece = worn.rbegin(); armorPiece != worn.rend(); ++armorPiece) {
         std::bitset<num_bp> cover = armorPiece->get_covered_body_parts() & parts;
 
         if (cover.none()) {
@@ -10249,7 +10232,7 @@ public:
     virtual ~ma_style_callback() { }
 };
 
-void player::pick_style() // Style selection menu
+bool player::pick_style() // Style selection menu
 {
     //Create menu
     // Entries:
@@ -10290,6 +10273,8 @@ void player::pick_style() // Style selection menu
         }
         else if ( selection == 1 ) {
             keep_hands_free = !keep_hands_free;
+        } else {
+            return false;
         }
     }
     else {
@@ -10316,10 +10301,11 @@ void player::pick_style() // Style selection menu
             style_selected = matype_id( "style_none" );
         else if (selection == 1)
             keep_hands_free = !keep_hands_free;
-
-        //else
-        //all other means -> don't change, keep current.
+        else
+            return false;
     }
+
+    return true;
 }
 
 hint_rating player::rate_action_wear(item *it)
@@ -10334,12 +10320,12 @@ hint_rating player::rate_action_wear(item *it)
     if (it->is_power_armor() && worn.size()) {
         if (it->covers(bp_torso)) {
             return HINT_IFFY;
-        } else if (it->covers(bp_head) && !worn[0].is_power_armor()) {
+        } else if (it->covers(bp_head) && !worn.front().is_power_armor()) {
             return HINT_IFFY;
         }
     }
     // are we trying to wear something over power armor? We can't have that, unless it's a backpack, or similar.
-    if (worn.size() && worn[0].is_power_armor() && !(it->covers(bp_head))) {
+    if (worn.size() && worn.front().is_power_armor() && !(it->covers(bp_head))) {
         if (!(it->covers(bp_torso) && it->color() == c_green)) {
             return HINT_IFFY;
         }
@@ -10803,63 +10789,64 @@ bool player::takeoff( item *target, bool autodrop, std::vector<item> *items)
 
 bool player::takeoff(int inventory_position, bool autodrop, std::vector<item> *items)
 {
-    bool taken_off = false;
     if (inventory_position == -1) {
-        taken_off = wield(NULL, autodrop);
-    } else {
-        int worn_index = worn_position_to_index(inventory_position);
-        if (worn_index >= 0 && size_t(worn_index) < worn.size()) {
-            item &w = worn[worn_index];
+        return wield( nullptr, autodrop );
+    }
 
-            // Handle power armor.
-            if (w.is_power_armor() && w.covers(bp_torso)) {
-                // We're trying to take off power armor, but cannot do that if we have a power armor component on!
-                for (int j = worn.size() - 1; j >= 0; j--) {
-                    if (worn[j].is_power_armor() &&
-                            j != worn_index) {
-                        if( autodrop || items != nullptr ) {
-                            if( items != nullptr ) {
-                                items->push_back( worn[j] );
-                            } else {
-                                g->m.add_item_or_charges( posx(), posy(), worn[j] );
-                            }
-                            add_msg(_("You take off your %s."), worn[j].tname().c_str());
-                            worn.erase(worn.begin() + j);
-                            // If we are before worn_index, erasing this element shifted its position by 1.
-                            if (worn_index > j) {
-                                worn_index -= 1;
-                                w = worn[worn_index];
-                            }
-                            taken_off = true;
-                        } else {
-                            add_msg(m_info, _("You can't take off power armor while wearing other power armor components."));
-                            return false;
-                        }
-                    }
-                }
+    int worn_index = worn_position_to_index( inventory_position );
+    if( static_cast<size_t>( worn_index ) >= worn.size() ) {
+        add_msg( m_info, _("You are not wearing that item.") );
+        return false;
+    }
+    bool taken_off = false;
+
+    auto first_iter = worn.begin();
+    std::advance( first_iter, worn_index );
+    item &w = *first_iter;
+
+    // Handle power armor.
+    if (w.is_power_armor() && w.covers(bp_torso)) {
+        // We're trying to take off power armor, but cannot do that if we have a power armor component on!
+        for( auto iter = worn.begin(); iter != worn.end(); ) {
+            item& other_armor = *iter;
+
+            if( &other_armor == &w || !other_armor.is_power_armor() ) {
+                ++iter;
+                continue;
+            }
+            if( !autodrop && items == nullptr ) {
+                add_msg( m_info, _("You can't take off power armor while wearing other power armor components.") );
+                return false;
             }
 
             if( items != nullptr ) {
-                items->push_back( w );
-                taken_off = true;
-            } else if (autodrop || volume_capacity() - w.get_storage() > volume_carried() + w.volume()) {
-                inv.add_item_keep_invlet(w);
-                taken_off = true;
-            } else if (query_yn(_("No room in inventory for your %s.  Drop it?"),
-                    w.tname().c_str())) {
-                g->m.add_item_or_charges(posx(), posy(), w);
-                taken_off = true;
+                items->push_back( other_armor );
             } else {
-                taken_off = false;
+                g->m.add_item_or_charges( pos(), other_armor );
             }
-            if( taken_off ) {
-                moves -= 250;    // TODO: Make this variable
-                add_msg(_("You take off your %s."), w.tname().c_str());
-                worn.erase(worn.begin() + worn_index);
-            }
-        } else {
-            add_msg(m_info, _("You are not wearing that item."));
+            add_msg( _("You take off your %s."), other_armor.tname().c_str() );
+            iter = worn.erase( iter );
+            taken_off = true;
         }
+    }
+
+    if( items != nullptr ) {
+        items->push_back( w );
+        taken_off = true;
+    } else if (autodrop || volume_capacity() - w.get_storage() > volume_carried() + w.volume()) {
+        inv.add_item_keep_invlet(w);
+        taken_off = true;
+    } else if (query_yn(_("No room in inventory for your %s.  Drop it?"),
+            w.tname().c_str())) {
+        g->m.add_item_or_charges( pos(), w );
+        taken_off = true;
+    } else {
+        taken_off = false;
+    }
+    if( taken_off ) {
+        moves -= 250;    // TODO: Make this variable
+        add_msg(_("You take off your %s."), w.tname().c_str());
+        worn.erase( first_iter );
     }
 
     recalc_sight_limits();
@@ -11214,8 +11201,14 @@ activate your weapon."), gun->tname().c_str(), _(mod->location.c_str()));
         return;
     } else if (used->is_gun()) {
         std::vector<item> &mods = used->contents;
+        unsigned imodcount = 0;
+        for( auto &gm : mods ){
+            if( gm.has_flag("IRREMOVABLE") ){
+                imodcount++;
+            }
+        }
         // Get weapon mod names.
-        if (mods.empty()) {
+        if (mods.empty() || mods.size() == imodcount ) {
             add_msg(m_info, _("Your %s doesn't appear to be modded."), used->tname().c_str());
             return;
         }
@@ -11231,7 +11224,9 @@ activate your weapon."), gun->tname().c_str(), _(mod->location.c_str()));
         kmenu.selected = 0;
         kmenu.text = _("Remove which modification?");
         for (size_t i = 0; i < mods.size(); i++) {
-            kmenu.addentry( i, true, -1, mods[i].tname() );
+            if( !mods[i].has_flag("IRREMOVABLE") ){
+                kmenu.addentry( i, true, -1, mods[i].tname() );
+            }
         }
         kmenu.addentry( mods.size(), true, 'r', _("Remove all") );
         kmenu.addentry( mods.size() + 1, true, 'q', _("Cancel") );
@@ -11244,7 +11239,9 @@ activate your weapon."), gun->tname().c_str(), _(mod->location.c_str()));
             add_msg(_("You remove your %s from your %s."), mod.c_str(), used->tname().c_str());
         } else if (choice == int(mods.size())) {
             for (int i = used->contents.size() - 1; i >= 0; i--) {
-                remove_gunmod(used, i);
+                if( !used->contents[i].has_flag("IRREMOVABLE") ){
+                    remove_gunmod(used, i);
+                }
             }
             add_msg(_("You remove all the modifications from your %s."), used->tname().c_str());
         } else {
@@ -12111,12 +12108,12 @@ float player::fine_detail_vision_mod()
         (has_effect("boomered") && !has_trait("PER_SLIME_OK")) ) {
         return 5.0;
     }
+    // Scale linearly as light level approaches LIGHT_AMBIENT_LIT.
     // If we're actually a source of light, assume we can direct it where we need it.
-    // Scale linearly own_light approaches LIGHT_AMBIENT_LIT.
-    // but also enforce a monimum of 1.0, and drop by one as a bonus.
-    float own_light = std::max( 1.0, LIGHT_AMBIENT_LIT - active_light() );
+    // Therefore give a hefty bonus relative to ambient light.
+    float own_light = std::max( 1.0, LIGHT_AMBIENT_LIT - active_light() - 2 );
 
-    // Same calculation as above, but with a result 1 lower.
+    // Same calculation as above, but with a result 3 lower.
     float ambient_light = std::max( 1.0, LIGHT_AMBIENT_LIT - g->m.ambient_light_at( pos() ) + 1.0 );
 
     return std::min( own_light, ambient_light );
@@ -12177,7 +12174,7 @@ int player::warmth(body_part bp) const
     return ret;
 }
 
-int bestwarmth( const std::vector< item > &its, const std::string &flag )
+int bestwarmth( const std::list< item > &its, const std::string &flag )
 {
     int best = 0;
     for( auto &w : its ) {
@@ -12248,26 +12245,28 @@ int player::encumb(body_part bp, double &layers, int &armorenc) const
         }
     }
 
-    for (size_t i = 0; i < worn.size(); ++i) {
-        if( worn[i].covers(bp) ) {
-            if( worn[i].has_flag( "SKINTIGHT" ) ) {
-                level = UNDERWEAR;
-            } else if ( worn[i].has_flag( "WAIST" ) ) {
-                level = WAIST_LAYER;
-            } else if ( worn[i].has_flag( "OUTER" ) ) {
-                level = OUTER_LAYER;
-            } else if ( worn[i].has_flag( "BELTED") ) {
-                level = BELTED_LAYER;
-            } else {
-                level = REGULAR_LAYER;
-            }
+    for( auto& w : worn ) {
+        if( !w.covers(bp) ) {
+            continue;
+        }
 
-            layer[level] += 10;
-            if( worn[i].is_power_armor() && is_wearing_active_power_armor ) {
-                armorenc += std::max( 0, worn[i].get_encumber() - 40);
-            } else {
-                armorenc += worn[i].get_encumber();
-            }
+        if( w.has_flag( "SKINTIGHT" ) ) {
+            level = UNDERWEAR;
+        } else if ( w.has_flag( "WAIST" ) ) {
+            level = WAIST_LAYER;
+        } else if ( w.has_flag( "OUTER" ) ) {
+            level = OUTER_LAYER;
+        } else if ( w.has_flag( "BELTED") ) {
+            level = BELTED_LAYER;
+        } else {
+            level = REGULAR_LAYER;
+        }
+
+        layer[level] += 10;
+        if( w.is_power_armor() && is_wearing_active_power_armor ) {
+            armorenc += std::max( 0, w.get_encumber() - 40);
+        } else {
+            armorenc += w.get_encumber();
         }
     }
     armorenc = std::max(0, armorenc);
@@ -12479,17 +12478,9 @@ int player::get_armor_cut_base(body_part bp) const
     return ret;
 }
 
-void get_armor_on(player* p, body_part bp, std::vector<int>& armor_indices) {
-    for (size_t i = 0; i < p->worn.size(); i++) {
-        if (p->worn[i].covers(bp)) {
-            armor_indices.push_back(i);
-        }
-    }
-}
-
-void player::armor_absorb(damage_unit& du, item& armor) {
+bool player::armor_absorb(damage_unit& du, item& armor) {
     if( rng( 1, 100 ) > armor.get_coverage() ) {
-        return;
+        return false;
     }
 
     // TODO: add some check for power armor
@@ -12505,7 +12496,7 @@ void player::armor_absorb(damage_unit& du, item& armor) {
     // before becoming inneffective or being destroyed.
     const int num_parts_covered = armor.get_covered_body_parts().count();
     if( !one_in( num_parts_covered ) ) {
-        return;
+        return false;
     }
 
     // Don't damage armor as much when bypassed by armor piercing
@@ -12517,7 +12508,6 @@ void player::armor_absorb(damage_unit& du, item& armor) {
         (raw_dmg <= raw_armor && !armor.has_flag("STURDY") &&
          !armor.is_power_armor() && one_in(200)) ) {
 
-        armor.damage++;
         auto &material = armor.get_random_material();
         std::string damage_verb = ( du.type == DT_BASH ) ?
             material.bash_dmg_verb() : material.cut_dmg_verb();
@@ -12536,17 +12526,26 @@ void player::armor_absorb(damage_unit& du, item& armor) {
             SCT.add(posx(), posy(), NORTH, remove_color_tags( pre_damage_name ),
                     m_neutral, damage_verb, m_info);
         }
+
+        armor.damage++;
+        if( armor.damage >= 5 ) {
+            //~ %s is armor name
+            add_memorial_log( pgettext("memorial_male", "Worn %s was completely destroyed."),
+                              pgettext("memorial_female", "Worn %s was completely destroyed."),
+                              pre_damage_name.c_str() );
+            add_msg_player_or_npc( m_bad, _("Your %s is completely destroyed!"),
+                                   _("<npcname>'s %s is completely destroyed!"),
+                                   pre_damage_name.c_str() );
+            return true;
+        }
     }
+    return false;
 }
 
 void player::absorb_hit(body_part bp, damage_instance &dam) {
+    std::list<item> worn_remains;
+
     for( auto &elem : dam.damage_units ) {
-
-        // Recompute the armor indices for every damage unit because we may have
-        // destroyed armor earlier in the loop.
-        std::vector<int> armor_indices;
-
-        get_armor_on( this,bp,armor_indices );
 
         // CBMs absorb damage first before hitting armor
         if( has_active_bionic("bio_ads") ) {
@@ -12567,24 +12566,22 @@ void player::absorb_hit(body_part bp, damage_instance &dam) {
 
         // The worn vector has the innermost item first, so
         // iterate reverse to damage the outermost (last in worn vector) first.
-        for( std::vector<int>::reverse_iterator armor_it = armor_indices.rbegin();
-             armor_it != armor_indices.rend(); ++armor_it ) {
+        for( auto iter = worn.rbegin(); iter != worn.rend(); ) {
+            item& armor = *iter;
 
-            const int index = *armor_it;
+            if( !armor.covers( bp ) ) {
+                ++iter;
+                continue;
+            }
 
-            armor_absorb( elem, worn[index] );
-
-            // now check if armor was completely destroyed and display relevant messages
-            // TODO: use something less janky than the old code for this check
-            if( worn[index].damage >= 5 ) {
-                //~ %s is armor name
-                add_memorial_log(pgettext("memorial_male", "Worn %s was completely destroyed."),
-                                 pgettext("memorial_female", "Worn %s was completely destroyed."),
-                                 worn[index].tname( 1, false ).c_str());
-                add_msg_player_or_npc( m_bad, _("Your %s is completely destroyed!"),
-                                              _("<npcname>'s %s is completely destroyed!"),
-                                              worn[index].tname( 1, false ).c_str() );
-                worn.erase(worn.begin() + index);
+            if( armor_absorb( elem, armor ) ) {
+                worn_remains.insert( worn_remains.end(), armor.contents.begin(), armor.contents.end() );
+                // decltype is the typename of the iterator, ote that reverse_iterator::base returns the
+                // iterator to the next element, not the one the revers_iterator points to.
+                // http://stackoverflow.com/questions/1830158/how-to-call-erase-with-a-reverse-iterator
+                iter = decltype(iter)( worn.erase( --iter.base() ) );
+            } else {
+                ++iter;
             }
         }
 
@@ -12741,6 +12738,9 @@ void player::absorb_hit(body_part bp, damage_instance &dam) {
         if( elem.amount < 0 ) {
             elem.amount = 0;
         }
+    }
+    for( item& remain : worn_remains ) {
+        g->m.add_item_or_charges( pos(), remain );
     }
 }
 
@@ -13600,7 +13600,7 @@ bool player::can_pickup(bool print_msg) const
     return true;
 }
 
-bool player::has_container_for(const item &newit)
+bool player::has_container_for(const item &newit) const
 {
     if (!newit.made_of(LIQUID)) {
         // Currently only liquids need a container
@@ -13608,8 +13608,8 @@ bool player::has_container_for(const item &newit)
     }
     unsigned charges = newit.charges;
     charges -= weapon.get_remaining_capacity_for_liquid(newit);
-    for (size_t i = 0; i < worn.size() && charges > 0; i++) {
-        charges -= worn[i].get_remaining_capacity_for_liquid(newit);
+    for( auto& w : worn ) {
+        charges -= w.get_remaining_capacity_for_liquid(newit);
     }
     for (size_t i = 0; i < inv.size() && charges > 0; i++) {
         const std::list<item>&items = inv.const_stack(i);
@@ -13868,35 +13868,14 @@ std::vector<std::string> player::get_overlay_ids() const {
 void player::spores()
 {
     sounds::sound( pos(), 10, _("Pouf!")); //~spore-release sound
-    int sporex, sporey;
-    int mondex;
     for (int i = -1; i <= 1; i++) {
         for (int j = -1; j <= 1; j++) {
             if (i == 0 && j == 0) {
                 continue;
             }
-            sporex = posx() + i;
-            sporey = posy() + j;
-            tripoint sporep( sporex, sporey, posz() );
-            mondex = g->mon_at( sporep );
-            if (g->m.move_cost(sporex, sporey) > 0) {
-                if (mondex != -1) { // Spores hit a monster
-                    if (g->u.sees(sporex, sporey) &&
-                        !g->zombie(mondex).type->in_species("FUNGUS")) {
-                        add_msg(_("The %s is covered in tiny spores!"),
-                                g->zombie(mondex).name().c_str());
-                    }
-                    monster &critter = g->zombie( mondex );
-                    if( !critter.make_fungus() ) {
-                        critter.die( this );
-                    }
-                } else if (one_in(3) && g->num_zombies() <= 1000) { // Spawn a spore
-                    if (g->summon_mon( "mon_spore", sporep )) {
-                        monster *spore = g->monster_at( sporep );
-                        spore->friendly = -1;
-                    }
-                }
-            }
+
+            tripoint sporep( posx() + i, posy() + j, posz() );
+            g->m.fungalize( sporep, this, 0.25 );
         }
     }
 }
